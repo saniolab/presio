@@ -9,12 +9,11 @@
 #   3. The repo's dbschema.sql is mounted as a Postgres init migration, so the
 #      `sessions` table + `presentations` bucket are created on first boot.
 #
-# Ingress: the `presio` and `kong` containers carry Traefik labels and join the
-# external `web` network, so the shared Traefik proxy (see proxy/) terminates TLS
-# and routes the two domains to them. No host ports are published here.
+# Ingress: labelled services join the existing host Traefik on
+# `traefik-servicenet` (no bundled proxy, no published host ports). TLS is
+# issued by Traefik's `tlschallenge` cert resolver.
 #
 # Everything is driven by a root .env (copy from deploy/.env.example). To run:
-#   docker network create web   # once per host (shared with the proxy)
 #   cp deploy/.env.example .env  # then fill it in
 #   docker compose up -d
 # See deploy/README.md.
@@ -84,7 +83,7 @@ services:
       default:
         aliases:
           - api-gw
-      web:
+      traefik-servicenet:
     healthcheck:
       test: ["CMD", "kong", "health"]
       interval: 5s
@@ -93,15 +92,18 @@ services:
     depends_on:
       studio:
         condition: service_healthy
-    # Ingress via the shared Traefik proxy (no host ports). Routes the Supabase
-    # domain to Kong's HTTP port 8000.
+    # Ingress via the host Traefik. Routes the Supabase domain to Kong :8000.
     labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=web"
-      - "traefik.http.routers.supabase.rule=Host(`${SUPABASE_HOST}`)"
-      - "traefik.http.routers.supabase.entrypoints=websecure"
-      - "traefik.http.routers.supabase.tls=true"
-      - "traefik.http.services.supabase.loadbalancer.server.port=8000"
+      traefik.enable: "true"
+      traefik.docker.network: traefik-servicenet
+      traefik.http.routers.supabase.rule: Host(`${SUPABASE_HOST}`)
+      traefik.http.routers.supabase.tls: "true"
+      traefik.http.routers.supabase.tls.certResolver: tlschallenge
+      traefik.http.routers.supabase.entrypoints: web-secure
+      traefik.http.services.supabase.loadbalancer.server.port: "8000"
+      traefik.http.routers.supabase.middlewares: "supabase"
+      traefik.http.middlewares.supabase.headers.framedeny: "true"
+      traefik.http.middlewares.supabase.headers.sslredirect: "true"
     volumes:
       - ./deploy/volumes/api/kong.yml:/home/kong/temp.yml:ro,z
       - ./deploy/volumes/api/kong-entrypoint.sh:/home/kong/kong-entrypoint.sh:ro,z
@@ -117,6 +119,11 @@ services:
       KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
       KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
       KONG_PROXY_ACCESS_LOG: /dev/stdout combined
+      # Traefik terminates TLS; without this Kong reports proto=http to GoTrue
+      # and OAuth can bounce through http:// (hash tokens get dropped).
+      KONG_TRUSTED_IPS: 0.0.0.0/0,::/0
+      KONG_REAL_IP_RECURSIVE: "on"
+      KONG_REAL_IP_HEADER: X-Forwarded-For
       #KONG_SSL_CERT: /home/kong/server.crt
       #KONG_SSL_CERT_KEY: /home/kong/server.key
       SUPABASE_ANON_KEY: ${ANON_KEY}
@@ -153,13 +160,18 @@ services:
     environment:
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
-      API_EXTERNAL_URL: ${API_EXTERNAL_URL}
+      # Custom OIDC providers append /callback to this value. The public route
+      # is /auth/v1/callback (Kong), so the auth-base URL must include /auth/v1.
+      # Other ${API_EXTERNAL_URL} interpolations below still use the .env host.
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL}/auth/v1
 
       GOTRUE_DB_DRIVER: postgres
       GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
 
       GOTRUE_SITE_URL: ${SITE_URL}
       GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS}
+      # Trust Traefik's Host / proto so callback redirects stay on https://…
+      GOTRUE_MAILER_EXTERNAL_HOSTS: ${SUPABASE_HOST},${APP_HOST}
       GOTRUE_DISABLE_SIGNUP: ${DISABLE_SIGNUP}
 
       GOTRUE_JWT_ADMIN_ROLES: service_role
@@ -213,6 +225,10 @@ services:
       GOTRUE_EXTERNAL_GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
       GOTRUE_EXTERNAL_GITHUB_SECRET: ${GITHUB_SECRET}
       GOTRUE_EXTERNAL_GITHUB_REDIRECT_URI: ${API_EXTERNAL_URL}/auth/v1/callback
+
+      # Custom OIDC (Authentik). Do not use the Keycloak slot: it hardcodes
+      # /protocol/openid-connect/* paths that Authentik does not serve.
+      GOTRUE_CUSTOM_OAUTH_ENABLED: "true"
 
       # GOTRUE_EXTERNAL_AZURE_ENABLED: ${AZURE_ENABLED}
       # GOTRUE_EXTERNAL_AZURE_CLIENT_ID: ${AZURE_CLIENT_ID}
@@ -672,6 +688,25 @@ services:
         psql -h db -p "${POSTGRES_PORT}" -U postgres -d "${POSTGRES_DB}" -v ON_ERROR_STOP=1 -f /schema.sql
         echo "Presio schema applied."
 
+  # Register Authentik as GoTrue custom OIDC provider (custom:authentik).
+  # Idempotent: creates or updates from AUTHENTIK_* on every compose up.
+  authentik-provider-init:
+    container_name: presio-authentik-provider-init
+    image: python:3.12-alpine
+    restart: "no"
+    depends_on:
+      auth:
+        condition: service_healthy
+    environment:
+      AUTHENTIK_ENABLED: ${AUTHENTIK_ENABLED:-false}
+      AUTHENTIK_CLIENT_ID: ${AUTHENTIK_CLIENT_ID:-}
+      AUTHENTIK_SECRET: ${AUTHENTIK_SECRET:-}
+      AUTHENTIK_URL: ${AUTHENTIK_URL:-}
+      SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+    volumes:
+      - ./deploy/volumes/auth/register-authentik.py:/register-authentik.py:ro
+    entrypoint: ["python3", "/register-authentik.py"]
+
   # The Presio app itself: Express + Socket.IO server that also serves the built
   # React client. Talks to Supabase through the public URL (which doubles as the
   # base for the public storage URLs handed back to viewers).
@@ -684,10 +719,14 @@ services:
         VITE_SUPABASE_URL: ${SUPABASE_PUBLIC_URL}
         VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY: ${ANON_KEY}
         VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
+        # Prefer VITE_AUTH_* so the login buttons can be hidden independently
+        # of GoTrue; fall back to GITHUB_ENABLED / AUTHENTIK_ENABLED.
+        VITE_AUTH_GITHUB: ${VITE_AUTH_GITHUB:-${GITHUB_ENABLED:-true}}
+        VITE_AUTH_AUTHENTIK: ${VITE_AUTH_AUTHENTIK:-${AUTHENTIK_ENABLED:-false}}
     restart: unless-stopped
     networks:
       default:
-      web:
+      traefik-servicenet:
     depends_on:
       kong:
         condition: service_healthy
@@ -706,15 +745,19 @@ services:
       ANALYTICS_URL: ${ANALYTICS_URL:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
-    # Ingress via the shared Traefik proxy (no host ports). Routes the app domain
-    # to the Express/Socket.IO server on port 3001 (websockets pass through).
+    # Ingress via the host Traefik. Routes the app domain to Express/Socket.IO
+    # on port 3001 (websockets pass through).
     labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=web"
-      - "traefik.http.routers.presio.rule=Host(`${APP_HOST}`)"
-      - "traefik.http.routers.presio.entrypoints=websecure"
-      - "traefik.http.routers.presio.tls=true"
-      - "traefik.http.services.presio.loadbalancer.server.port=3001"
+      traefik.enable: "true"
+      traefik.docker.network: traefik-servicenet
+      traefik.http.routers.presio.rule: Host(`${APP_HOST}`)
+      traefik.http.routers.presio.tls: "true"
+      traefik.http.routers.presio.tls.certResolver: tlschallenge
+      traefik.http.routers.presio.entrypoints: web-secure
+      traefik.http.services.presio.loadbalancer.server.port: "3001"
+      traefik.http.routers.presio.middlewares: "presio"
+      traefik.http.middlewares.presio.headers.framedeny: "true"
+      traefik.http.middlewares.presio.headers.sslredirect: "true"
 
   # One-shot: create the umami database and user in the shared Postgres instance.
   # Uses `|| true` so each statement is idempotent on re-runs.
@@ -746,7 +789,7 @@ services:
     restart: unless-stopped
     networks:
       default:
-      web:
+      traefik-servicenet:
     depends_on:
       umami-db-init:
         condition: service_completed_successfully
@@ -754,42 +797,26 @@ services:
       DATABASE_URL: postgresql://umami:${UMAMI_DB_PASSWORD}@db:${POSTGRES_PORT}/umami
       APP_SECRET: ${UMAMI_APP_SECRET}
     labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=web"
-      - "traefik.http.routers.umami.rule=Host(`${UMAMI_HOST}`)"
-      - "traefik.http.routers.umami.entrypoints=websecure"
-      - "traefik.http.routers.umami.tls=true"
-      - "traefik.http.services.umami.loadbalancer.server.port=3000"
-
-  # Uptime Kuma — self-hosted uptime monitoring + status dashboard.
-  # After first boot: visit https://${UPTIME_HOST}, create the admin account,
-  # then add an HTTP(s) monitor pointing at https://${APP_HOST}/healthz.
-  uptime-kuma:
-    container_name: presio-uptime-kuma
-    image: louislam/uptime-kuma:1
-    restart: unless-stopped
-    networks:
-      default:
-      web:
-    volumes:
-      - uptime-kuma-data:/app/data
-    labels:
-      - "traefik.enable=true"
-      - "traefik.docker.network=web"
-      - "traefik.http.routers.uptime.rule=Host(`${UPTIME_HOST}`)"
-      - "traefik.http.routers.uptime.entrypoints=websecure"
-      - "traefik.http.routers.uptime.tls=true"
-      - "traefik.http.services.uptime.loadbalancer.server.port=3001"
+      traefik.enable: "true"
+      traefik.docker.network: traefik-servicenet
+      traefik.http.routers.umami.rule: Host(`${UMAMI_HOST}`)
+      traefik.http.routers.umami.tls: "true"
+      traefik.http.routers.umami.tls.certResolver: tlschallenge
+      traefik.http.routers.umami.entrypoints: web-secure
+      traefik.http.services.umami.loadbalancer.server.port: "3000"
+      traefik.http.routers.umami.middlewares: "umami"
+      traefik.http.middlewares.umami.headers.framedeny: "true"
+      traefik.http.middlewares.umami.headers.sslredirect: "true"
 
 networks:
   # Internal network for the Supabase services to talk to each other.
   default:
-  # Shared with the Traefik proxy (created once per host: `docker network create web`).
-  web:
+  # Existing host Traefik network.
+  traefik-servicenet:
     external: true
+    name: traefik-servicenet
 
 volumes:
   db-config:
   deno-cache:
   minio-data:
-  uptime-kuma-data:

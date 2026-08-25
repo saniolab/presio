@@ -11,13 +11,12 @@ const devUser: User | null =
     ? ({ id: "dev-user", email: import.meta.env.VITE_DEV_USER } as User)
     : null;
 
-// The current page as an auth redirect target, *without* the hash. GoTrue
-// appends its tokens as a `#…` fragment; a stray trailing `#` in the target
-// (supabase-js leaves one behind after cleaning a previous OAuth return)
-// doubles up and makes the tokens unparseable — the login/reset then appears
-// to silently do nothing.
-const currentPageUrl = () =>
-  window.location.origin + window.location.pathname + window.location.search;
+// OAuth/email redirect target: origin + path only.
+// GoTrue appends tokens as a `#…` fragment — a leftover `#` in the target
+// doubles up and makes them unparseable. Query string is also unsafe: if the
+// user retries login from `?error=bad_oauth_state&…`, that error is sent as
+// redirect_to and supabase-js treats the successful return as a failed OAuth.
+const currentPageUrl = () => window.location.origin + window.location.pathname;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
@@ -31,11 +30,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // params on the redirect. Surface them — otherwise a dead link just lands on
   // the page with no explanation.
   const [authLinkError, setAuthLinkError] = useState<string | null>(() => {
-    const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-    const msg = params.get("error_description");
-    if (msg) {
-      // Remove the error fragment so a reload doesn't re-show it.
-      window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const query = new URLSearchParams(window.location.search);
+    const msg = hash.get("error_description") ?? query.get("error_description");
+    if (msg || query.get("error")) {
+      // Drop error query/hash so a retry does not send them as redirect_to.
+      window.history.replaceState(null, "", window.location.pathname);
     }
     return msg;
   });
@@ -57,10 +57,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user: devUser ?? session?.user ?? null,
     session,
     loading,
-    signInWithGitHub: async (redirectTo) => {
+    signInWithOAuth: async (provider, redirectTo) => {
       const { error } = await supabase.auth.signInWithOAuth({
-        provider: "github",
-        options: { redirectTo: redirectTo ?? currentPageUrl() },
+        // custom:authentik is a GoTrue custom provider, not in the built-in union.
+        provider: provider as "github",
+        options: {
+          redirectTo: redirectTo ?? currentPageUrl(),
+          ...(provider === "custom:authentik" ? { scopes: "openid email profile" } : {}),
+        },
       });
       if (error) throw error;
     },

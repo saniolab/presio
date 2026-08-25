@@ -65,7 +65,7 @@ Copy the example to a `.env` **at the repo root** (this is where
 ```bash
 cp deploy/.env.example .env
 # edit .env — domains, the generated secrets, MinIO + dashboard passwords,
-# and the GitHub OAuth client id/secret.
+# and OAuth client credentials (GitHub and/or Authentik).
 ```
 
 Set the domains to your **real, externally-resolvable** values:
@@ -79,17 +79,44 @@ Set the domains to your **real, externally-resolvable** values:
 > both to call Supabase and to build the public PDF URLs it hands to viewers, so
 > it has to be reachable from outside the stack.
 
-## 3. GitHub OAuth
+## 3. OAuth / SSO
 
-Create a GitHub OAuth App (Settings → Developer settings → OAuth Apps):
+Every provider uses the same callback:
 
 - **Authorization callback URL:** `https://supabase.presio.xyz/auth/v1/callback`
   (i.e. `${API_EXTERNAL_URL}/auth/v1/callback`).
 
-Put its client id/secret into `GITHUB_CLIENT_ID` / `GITHUB_SECRET` in `.env`.
-Email/password is enabled too (`ENABLE_EMAIL_SIGNUP=true`, auto-confirm on by
-default — set `ENABLE_EMAIL_AUTOCONFIRM=false` and fill `SMTP_*` for real
-verification emails).
+### GitHub
+
+Create a GitHub OAuth App (Settings → Developer settings → OAuth Apps) with
+that callback. Put its client id/secret into `GITHUB_CLIENT_ID` /
+`GITHUB_SECRET` in `.env`. Set `GITHUB_ENABLED=false` to disable it in GoTrue.
+The login button follows `VITE_AUTH_GITHUB` (defaults to `GITHUB_ENABLED`) and
+is baked into the client — rebuild `presio` after changing it.
+
+### Authentik
+
+Create an **OAuth2/OpenID Provider** in Authentik (confidential client) with
+that same callback (`…/auth/v1/callback`, not `…/callback`), then an
+Application bound to it. Scopes: `openid`, `email`, `profile`.
+
+- `AUTHENTIK_ENABLED=true`
+- `AUTHENTIK_CLIENT_ID` / `AUTHENTIK_SECRET` — from the Authentik provider
+- `AUTHENTIK_URL` — the **issuer** from Authentik’s OpenID Configuration
+  (the OpenID Configuration URL *without* `/.well-known/openid-configuration`),
+  e.g. `https://authentik.example.com/application/o/presio/`
+
+GoTrue has no dedicated Authentik provider. This stack registers it as a
+**custom OIDC** provider (`custom:authentik`) via `authentik-provider-init`.
+Do not use the Keycloak slot — it requests `/protocol/openid-connect/auth`,
+which Authentik does not serve (you get Authentik’s “Not Found” page).
+
+After changing these values, recreate `auth`, run `authentik-provider-init`,
+and rebuild `presio` (`VITE_AUTH_AUTHENTIK` is baked into the client).
+
+Email/password is enabled too (`ENABLE_EMAIL_SIGNUP=true`). Set
+`ENABLE_EMAIL_AUTOCONFIRM=false` and fill `SMTP_*` for real verification
+emails.
 
 ## 4. Start the shared proxy (once per host)
 

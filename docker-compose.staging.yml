@@ -18,6 +18,8 @@ services:
       args:
         VITE_SUPABASE_URL: ${SUPABASE_PUBLIC_URL}
         VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY: ${ANON_KEY}
+        VITE_AUTH_GITHUB: ${VITE_AUTH_GITHUB:-${GITHUB_ENABLED:-true}}
+        VITE_AUTH_AUTHENTIK: ${VITE_AUTH_AUTHENTIK:-${AUTHENTIK_ENABLED:-false}}
     restart: unless-stopped
     networks:
       web:

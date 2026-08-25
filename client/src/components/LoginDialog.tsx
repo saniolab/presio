@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { DialogOverlay } from "@/components/ui/dialog-overlay";
-import { useAuth } from "@/lib/useAuth";
+import { authentikOAuthEnabled, githubOAuthEnabled } from "@/lib/authMode";
+import { useAuth, type OAuthProviderId } from "@/lib/useAuth";
 
 function GitHubIcon() {
   return (
@@ -11,8 +12,21 @@ function GitHubIcon() {
   );
 }
 
+function AuthentikIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+      <path d="M12 2.2 3.6 7v10L12 21.8 20.4 17V7L12 2.2zm0 2.3 6.1 3.5v7L12 18.5l-6.1-3.5v-7L12 4.5zm0 3.1-3.4 6h2.1l.6-1.1h3.4l.6 1.1h2.1L12 7.6zm0 2.2 1 1.8h-2l1-1.8z" />
+    </svg>
+  );
+}
+
+const oauthButtons: { id: OAuthProviderId; label: string; fail: string; icon: ReactNode; show: boolean }[] = [
+  { id: "github", label: "Continue with GitHub", fail: "GitHub sign-in failed", icon: <GitHubIcon />, show: githubOAuthEnabled },
+  { id: "custom:authentik", label: "Continue with Authentik", fail: "Authentik sign-in failed", icon: <AuthentikIcon />, show: authentikOAuthEnabled },
+];
+
 export function LoginDialog({ onClose }: { onClose: () => void }) {
-  const { signInWithGitHub, signInWithPassword, signUp, resetPassword, verifyResetCode } = useAuth();
+  const { signInWithOAuth, signInWithPassword, signUp, resetPassword, verifyResetCode } = useAuth();
   const [mode, setMode] = useState<"signin" | "signup" | "reset">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -22,6 +36,8 @@ export function LoginDialog({ onClose }: { onClose: () => void }) {
   // Reset flow: set once the email is sent; shows the one-time-code input.
   const [resetSent, setResetSent] = useState(false);
   const [resetCode, setResetCode] = useState("");
+
+  const visibleOAuth = oauthButtons.filter((b) => b.show);
 
   const submit = async () => {
     setError("");
@@ -54,15 +70,15 @@ export function LoginDialog({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const github = async () => {
+  const oauth = async (provider: OAuthProviderId, fail: string) => {
     setError("");
     try {
       // No explicit target: the provider defaults to the current page with the
       // hash stripped (a stray `#` corrupts GoTrue's token fragment).
-      await signInWithGitHub();
+      await signInWithOAuth(provider);
       // Redirects away; nothing more to do here.
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "GitHub sign-in failed");
+      setError(e instanceof Error ? e.message : fail);
     }
   };
 
@@ -79,12 +95,14 @@ export function LoginDialog({ onClose }: { onClose: () => void }) {
         </p>
       </div>
 
-      {mode !== "reset" && (
+      {mode !== "reset" && visibleOAuth.length > 0 && (
         <>
-          <Button variant="outline" className="w-full" onClick={github}>
-            <GitHubIcon />
-            Continue with GitHub
-          </Button>
+          {visibleOAuth.map((button) => (
+            <Button key={button.id} variant="outline" className="w-full" onClick={() => oauth(button.id, button.fail)}>
+              {button.icon}
+              {button.label}
+            </Button>
+          ))}
 
           <div className="relative">
             <div className="absolute inset-0 flex items-center">

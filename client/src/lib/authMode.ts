@@ -10,3 +10,17 @@
 // local session rewrites its PDF in IndexedDB) both work with no account, so
 // there's nothing to sign in for.
 export const authEnabled = Boolean(import.meta.env.VITE_SUPABASE_URL);
+
+// OAuth buttons are baked in at build time (Vite inlines VITE_*). Unset
+// VITE_AUTH_GITHUB keeps the historical GitHub button; Authentik is opt-in.
+// Authentik is a GoTrue custom OIDC provider (custom:authentik).
+function viteFlag(value: unknown, defaultOn: boolean): boolean {
+  if (value === undefined || value === "") return defaultOn;
+  const normalized = String(value).trim().toLowerCase();
+  if (["false", "0", "off", "no"].includes(normalized)) return false;
+  if (["true", "1", "on", "yes"].includes(normalized)) return true;
+  return defaultOn;
+}
+
+export const githubOAuthEnabled = viteFlag(import.meta.env.VITE_AUTH_GITHUB, true);
+export const authentikOAuthEnabled = viteFlag(import.meta.env.VITE_AUTH_AUTHENTIK, false);

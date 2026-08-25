@@ -82,4 +82,4 @@ while IFS= read -r line; do
   fi
 done < .env.example > "$OUT"
 chmod 600 "$OUT"
-echo "Wrote .env (chmod 600). Set GITHUB_* in .env if you left them as REPLACE_ME."
+echo "Wrote .env (chmod 600). Set GITHUB_* / AUTHENTIK_* in .env if you left them as placeholders."
