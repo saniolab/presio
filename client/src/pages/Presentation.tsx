@@ -20,6 +20,7 @@ import { socket } from "@/lib/socket";
 import { startClockSync } from "@/lib/clock";
 import { supabase } from "@/lib/supabaseClient";
 import { authEnabled } from "@/lib/authMode";
+import { appTitle } from "@/lib/flags";
 import { getSessionAuth, endSession } from "@/lib/utils";
 import { idbGet, idbPut, idbDelete } from "@/lib/localStore";
 import {
@@ -118,6 +119,12 @@ export default function Presentation() {
   // Resolved during load: true if this presentation's PDF lives in this
   // browser's IndexedDB (local session). null until known.
   const [local, setLocal] = useState<boolean | null>(null);
+  const [peerSynced, setPeerSynced] = useState(false);
+  const localPeerRef = useRef(false);
+  const markLocalPeer = () => {
+    localPeerRef.current = true;
+    setPeerSynced(true);
+  };
 
   const isViewer = role === "viewer";
   const outOfSync = isViewer && viewerSlide !== null;
@@ -314,52 +321,78 @@ export default function Presentation() {
     let localUrl = "";
     (async () => {
       try {
-        // If the PDF is in this browser's IndexedDB, it's a local session —
-        // render it without the server (works offline, independent of the row).
         const rec = await idbGet(id!).catch(() => {
           throw new Error("Couldn't read the presentation from this browser. Private/incognito mode isn't supported — please use a normal window.");
         });
-        if (rec) {
-          if (cancelled) return;
-          setLocal(true);
+
+        const openFromIdb = async () => {
+          if (!rec) return false;
           localUrl = URL.createObjectURL(rec.blob);
           localUrlRef.current = localUrl;
           const doc = await loadPdf(localUrl);
-          if (cancelled) return;
+          if (cancelled) return true;
           setPdfUrl(localUrl);
           setPdf(doc);
           setFilename(rec.filename);
           setTotalSlides(rec.totalSlides);
+          return true;
+        };
+
+        let session: {
+          local: boolean;
+          external?: boolean;
+          pdfUrl: string;
+          filename: string;
+          total_slides: number;
+          current_slide: number;
+        } | null = null;
+        try {
+          const res = await fetch(`/api/sessions/${id}`);
+          if (res.ok) session = await res.json();
+        } catch {
+          // Offline (or the API unreachable): fall through to IndexedDB.
+        }
+
+        if (session?.local) {
+          if (cancelled) return;
+          if (!(await openFromIdb())) {
+            throw new Error("This presentation is only available in the same browser on the device it was created on");
+          }
+          setLocal(true);
           return;
         }
 
-        const res = await fetch(`/api/sessions/${id}`);
-        if (!res.ok) throw new Error("Session not found");
-        const session = await res.json();
-        if (session.local) {
-          // Server knows this code, but the PDF only lives on the presenter's device.
-          throw new Error("This presentation is only available in the same browser on the device it was created on");
+        if (session && !session.local) {
+          if (cancelled) return;
+          setLocal(false);
+          setExternalPdf(!!session.external);
+          setFilename(session.filename);
+          setTotalSlides(session.total_slides);
+          setCurrentSlide(session.current_slide);
+          // Canonical server URL so a later replace / keep-offline refresh
+          // still hits storage, even if we render a cached IndexedDB copy.
+          setPdfUrl(session.pdfUrl);
+          if (await openFromIdb()) {
+            // Keep the server URL for replace / keep-offline fetches; the
+            // document itself is already loaded from the cached copy.
+            setPdfUrl(session.pdfUrl);
+            return;
+          }
+          const doc = await loadPdf(
+            replacedAt ? freshPdfUrl(session.pdfUrl, replacedAt) : session.pdfUrl
+          );
+          if (cancelled) return;
+          setPdf(doc);
+          return;
         }
+
+        // No live session: a previously cached copy still presents locally.
         if (cancelled) return;
-        setLocal(false);
-        setExternalPdf(!!session.external);
-        // Arriving straight from a replace (Home's recents/re-upload flow) the
-        // stored object has new bytes at the same URL, and this browser is the
-        // one most likely to have the old copy cached — it had the deck open
-        // before. Viewers already in the room don't hit this: they get
-        // deck_updated and reload through applyDeckUpdate, which busts too.
-        // Keyed by the replace's own timestamp, so a reload of this page reuses
-        // the fetch rather than starting another one.
-        const doc = await loadPdf(
-          replacedAt ? freshPdfUrl(session.pdfUrl, replacedAt) : session.pdfUrl
-        );
-        if (cancelled) return;
-        // Store the canonical URL: later reloads append their own version.
-        setPdfUrl(session.pdfUrl);
-        setPdf(doc);
-        setFilename(session.filename);
-        setTotalSlides(session.total_slides);
-        setCurrentSlide(session.current_slide);
+        if (await openFromIdb()) {
+          setLocal(true);
+          return;
+        }
+        throw new Error("Session not found");
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load presentation");
       } finally {
@@ -402,7 +435,7 @@ export default function Presentation() {
     if (!filename) return;
     const suffix = role === "controller" ? "Controller" : "Viewer";
     document.title = `${filename} - ${suffix}`;
-    return () => { document.title = "Presio"; };
+    return () => { document.title = appTitle; };
   }, [filename, role]);
 
   useEffect(() => {
@@ -412,6 +445,7 @@ export default function Presentation() {
     channelRef.current = channel;
     channel.onmessage = (e) => {
       const { type, payload } = e.data;
+      markLocalPeer();
       if (type === "slide_update") setCurrentSlide(payload.slideNumber);
       else if (type === "blank_update") setBlanked(payload.blanked);
       else if (type === "code_update") setShowCode(payload.showCode);
@@ -452,10 +486,13 @@ export default function Presentation() {
       }
     };
 
+    // Same-browser windows always sync over the channel, including hosted
+    // sessions once a peer is open — the socket may be down (offline copy).
+    channel.postMessage({ type: "state_request" });
+
     // Local sessions never touch the server: no socket, sync over the channel.
     if (local) {
       applyRole(requestedRole);
-      channel.postMessage({ type: "state_request" });
       return () => {
         channel.close();
         channelRef.current = null;
@@ -476,14 +513,25 @@ export default function Presentation() {
     };
 
     socket.on("connect", join);
-    socket.connect();
     startClockSync();
-    if (socket.connected) join();
+    if (navigator.onLine) {
+      socket.connect();
+      if (socket.connected) join();
+    }
+
+    const goOffline = () => {
+      socket.disconnect();
+    };
+    const goOnline = () => {
+      socket.connect();
+    };
+    window.addEventListener("offline", goOffline);
+    window.addEventListener("online", goOnline);
 
     // Re-request authoritative state when a viewer's tab returns to the
     // foreground — background tabs get frozen and can miss broadcasts.
     const reconcile = () => {
-      if (requestedRole === "viewer" && !document.hidden && socket.connected) join();
+      if (requestedRole === "viewer" && !document.hidden && socket.connected && !localPeerRef.current) join();
     };
     document.addEventListener("visibilitychange", reconcile);
 
@@ -500,42 +548,59 @@ export default function Presentation() {
     let sinceReconcile = 0;
     const watchdog = setInterval(() => {
       if (!socket.connected) {
-        socket.connect(); // idempotent; nudges reconnection if it stalled
+        if (navigator.onLine) socket.connect();
         sinceReconcile = 0;
         return;
       }
       sinceReconcile += RECONNECT_EVERY_MS;
       if (sinceReconcile >= RECONCILE_EVERY_MS && requestedRole === "viewer" && !document.hidden) {
         sinceReconcile = 0;
-        join();
+        if (!localPeerRef.current) join();
       }
     }, RECONNECT_EVERY_MS);
 
+    const settledRef = { current: false };
+
     socket.on("session_state", ({ currentSlide, totalSlides, role: grantedRole, annotations: serverAnnotations }) => {
-      setCurrentSlide(currentSlide);
-      setTotalSlides(totalSlides);
-      if (serverAnnotations && Object.keys(serverAnnotations).length) {
-        setAnnotations(serverAnnotations);
-      } else if (requestedRole === "controller") {
-        // The server has no drawings for this session (fresh boot / restart);
-        // reseed it from this controller's persisted copy.
+      const followLocalPeer = requestedRole === "viewer" && localPeerRef.current;
+      const controllerReconnect = requestedRole === "controller" && settledRef.current;
+
+      if (controllerReconnect) {
+        // We already have live state (possibly advanced while the socket was
+        // down). Push it back to the server instead of rewinding to the row.
+        socket.emit("slide_change", { slideNumber: stateRef.current.currentSlide });
         if (hasAnyStrokes(annotationsRef.current)) {
           socket.emit("annotations_sync", annotationsRef.current);
         }
-      } else {
-        // Viewers mirror the server unconditionally — keeping a stale local
-        // copy when the server has none would resurrect cleared drawings.
-        setAnnotations({});
+      } else if (!followLocalPeer) {
+        setCurrentSlide(currentSlide);
+        setTotalSlides(totalSlides);
+        if (serverAnnotations && Object.keys(serverAnnotations).length) {
+          setAnnotations(serverAnnotations);
+        } else if (requestedRole === "controller") {
+          // The server has no drawings for this session (fresh boot / restart);
+          // reseed it from this controller's persisted copy.
+          if (hasAnyStrokes(annotationsRef.current)) {
+            socket.emit("annotations_sync", annotationsRef.current);
+          }
+        } else {
+          // Viewers mirror the server unconditionally — keeping a stale local
+          // copy when the server has none would resurrect cleared drawings.
+          setAnnotations({});
+        }
       }
+
       if (grantedRole && grantedRole !== requestedRole) {
         applyRole(grantedRole);
         setSearchParams({ role: grantedRole }, { replace: true });
       } else {
         applyRole(requestedRole);
       }
+      settledRef.current = true;
     });
 
     socket.on("slide_update", ({ slideNumber }) => {
+      if (requestedRole === "viewer" && localPeerRef.current) return;
       setCurrentSlide(slideNumber);
     });
 
@@ -551,10 +616,12 @@ export default function Presentation() {
     });
 
     socket.on("blank_update", ({ blanked }: { blanked: boolean }) => {
+      if (requestedRole === "viewer" && localPeerRef.current) return;
       setBlanked(blanked);
     });
 
     socket.on("code_update", ({ showCode }: { showCode: boolean }) => {
+      if (requestedRole === "viewer" && localPeerRef.current) return;
       setShowCode(showCode);
     });
 
@@ -610,6 +677,7 @@ export default function Presentation() {
     });
 
     socket.on("error", ({ message }) => {
+      if (localPeerRef.current) return;
       setError(message);
     });
 
@@ -621,6 +689,8 @@ export default function Presentation() {
       channel.close();
       channelRef.current = null;
       document.removeEventListener("visibilitychange", reconcile);
+      window.removeEventListener("offline", goOffline);
+      window.removeEventListener("online", goOnline);
       clearInterval(watchdog);
       socket.off("connect", join);
       socket.off("session_state");
@@ -740,6 +810,29 @@ export default function Presentation() {
   const resync = useCallback(() => setViewerSlide(null), []);
 
   const syncAll = useCallback(() => { if (!local) socket.emit("sync_all"); }, [local]);
+
+  const keepOffline = useCallback(async () => {
+    if (!id || !pdfUrlRef.current) throw new Error("The presentation PDF is not available.");
+    const response = await fetch(pdfUrlRef.current);
+    if (!response.ok) throw new Error("The presentation PDF could not be downloaded.");
+    const buf = await response.arrayBuffer();
+    const blob = new Blob([buf], { type: "application/pdf" });
+    let sha256: string | undefined;
+    try {
+      sha256 = await sha256Hex(buf);
+    } catch {
+      // No crypto.subtle (plain-http origins): store without a fingerprint.
+    }
+    const rec = await idbGet(id).catch(() => null);
+    await idbPut({
+      id,
+      filename,
+      totalSlides,
+      blob,
+      sha256,
+      createdAt: rec?.createdAt ?? Date.now(),
+    });
+  }, [id, filename, totalSlides]);
 
   const endPresentation = useCallback(async () => {
     if (local) {
@@ -1295,6 +1388,7 @@ export default function Presentation() {
       <ViewerView
         id={id!}
         local={!!local}
+        peerSynced={peerSynced}
         deck={deck!}
         canvasRef={currentCanvasRef}
         blanked={blanked}
@@ -1333,12 +1427,14 @@ export default function Presentation() {
       <ControllerView
         id={id!}
         local={!!local}
+        peerSynced={peerSynced}
         deck={deck!}
         currentSlide={currentSlide}
         onGoTo={goTo}
         onSyncAll={syncAll}
         onEnd={endPresentation}
         onSynced={() => setLocal(false)}
+        onKeepOffline={keepOffline}
         onSaveNotes={saveNotes}
         onReplacePdf={replacePdf}
         currentCanvasRef={currentCanvasRef}
@@ -1353,16 +1449,15 @@ export default function Presentation() {
         onRemoteDeckApply={applyRemoteDeckUpdate}
         onBlankToggle={() => {
           const next = !blanked;
-          // Server mode learns the new state from the socket echo; local mode has
-          // no echo (BroadcastChannel doesn't deliver to the sender), so set it here.
-          if (local) setBlanked(next);
+          // BroadcastChannel doesn't deliver to the sender, so apply locally.
+          // The socket echo (hosted sessions) sets the same value again.
+          setBlanked(next);
           broadcast({ type: "blank_update", payload: { blanked: next } }, { event: "blank_toggle" });
         }}
         showCode={showCode}
         onShowCodeToggle={() => {
           const next = !showCode;
-          // Same echo asymmetry as blanking: local mode sets it directly.
-          if (local) setShowCode(next);
+          setShowCode(next);
           broadcast({ type: "code_update", payload: { showCode: next } }, { event: "code_toggle" });
         }}
         mediaState={mediaState}

@@ -47,11 +47,11 @@ function buildSteps(onOpenViewer: () => void): Step[] {
       ),
     },
     {
-      title: "Open the viewer window",
+      title: "Open the viewer",
       body: (
         <div className="space-y-4 text-sm text-muted-foreground">
           <p>
-            Your audience sees the slides in a separate viewer window, while you
+            Your audience sees the slides in a separate tab, while you
             keep your notes and controls here. Open it now:
           </p>
           <div className="flex justify-center pt-2">
@@ -69,7 +69,7 @@ function buildSteps(onOpenViewer: () => void): Step[] {
       body: (
         <div className="space-y-4 text-sm text-muted-foreground">
           <p>
-            Move the viewer window onto your projector or second display so your
+            Drag the viewer tab onto your projector or second display so your
             audience sees only the slides.
           </p>
           {/* Placeholder two-screen diagram. */}

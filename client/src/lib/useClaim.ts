@@ -1,13 +1,13 @@
 import { useState } from "react";
-import { idbGet, idbDelete } from "@/lib/localStore";
+import { idbGet } from "@/lib/localStore";
 import { supabase } from "@/lib/supabaseClient";
 import { authEnabled } from "@/lib/authMode";
 import { useAuth } from "@/lib/useAuth";
 import { getSessionAuth, setSessionAuth } from "@/lib/utils";
 
 // Uploads the local PDF and turns this session into a normal synced one (same
-// code). Stores the returned controller token so the presenter keeps control,
-// and drops the local IndexedDB copy so future loads use the synced path.
+// code). Stores the returned controller token so the presenter keeps control.
+// The IndexedDB copy stays so the deck can still be opened offline.
 export function useClaim(id: string) {
   const { session } = useAuth();
   const [syncing, setSyncing] = useState(false);
@@ -60,7 +60,6 @@ export function useClaim(id: string) {
       if (data.controllerToken) {
         setSessionAuth(id, { controllerToken: data.controllerToken, passphrase: data.passphrase });
       }
-      await idbDelete(id).catch(() => { /* ignore */ });
       return true;
     } catch (e: unknown) {
       setSyncError(e instanceof Error ? e.message : "Failed to sync presentation");

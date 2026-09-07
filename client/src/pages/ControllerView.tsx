@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { cn, getSessionAuth } from "@/lib/utils";
-import { Settings, Check, Option, Plus, Share2, ExternalLink, QrCode, Save, FolderOpen, PenLine, RefreshCw } from "lucide-react";
+import { Settings, Check, Share2, ExternalLink, QrCode, Save, FolderOpen, PenLine, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/components/ui/button-variants";
 import { Separator } from "@/components/ui/separator";
@@ -18,6 +18,7 @@ import { DownloadButton } from "@/components/DownloadButton";
 import { hasCompletedControllerOnboarding } from "@/lib/onboarding";
 import { useAuth } from "@/lib/useAuth";
 import { authEnabled } from "@/lib/authMode";
+import { brandingEnabled } from "@/lib/flags";
 import { useClaim } from "@/lib/useClaim";
 import { CurrentSlideCard } from "@/components/controller/CurrentSlideCard";
 import { NextSlideCard } from "@/components/controller/NextSlideCard";
@@ -63,6 +64,7 @@ import {
   visibleKeys,
 } from "@/lib/controllerLayout";
 import { lsGet, lsSet, lsGetString, lsSetString, viewerOpenedKey, STORAGE_KEYS } from "@/lib/storage";
+import { idbGet } from "@/lib/localStore";
 import { type MosaicNode } from "react-mosaic-component";
 import type { MediaState, AudioState } from "@/components/MediaOverlay";
 import type { Deck } from "@/lib/deck";
@@ -73,12 +75,14 @@ import { DEFAULT_PEN_STYLE, DEFAULT_HIGHLIGHTER_STYLE, hasAnyStrokes, type Laser
 interface ControllerViewProps {
   id: string;
   local: boolean;
+  peerSynced: boolean;
   deck: Deck;
   currentSlide: number;
   onGoTo: (slide: number) => void;
   onSyncAll: () => void;
   onEnd: () => void;
   onSynced: () => void;
+  onKeepOffline: () => Promise<void>;
   onSaveNotes: (slide: number, notes: string) => Promise<void>;
   onReplacePdf: (file: File, handle?: FileSystemFileHandle) => Promise<void>;
   currentCanvasRef: React.RefObject<HTMLDivElement | null>;
@@ -115,12 +119,14 @@ interface ControllerViewProps {
 export function ControllerView({
   id,
   local,
+  peerSynced,
   deck,
   currentSlide,
   onGoTo,
   onSyncAll,
   onEnd,
   onSynced,
+  onKeepOffline,
   onSaveNotes,
   onReplacePdf,
   currentCanvasRef,
@@ -230,6 +236,20 @@ export function ControllerView({
   // deck keeps being watchable after the swap (see replacePdf).
   const replaceHandleRef = useRef<FileSystemFileHandle | null>(null);
   const [replacing, setReplacing] = useState(false);
+  const [savingOffline, setSavingOffline] = useState(false);
+  const [offlineReady, setOfflineReady] = useState(false);
+  useEffect(() => {
+    if (local) return;
+    let cancelled = false;
+    idbGet(id)
+      .then((rec) => {
+        if (!cancelled && rec) setOfflineReady(true);
+      })
+      .catch(() => { /* private mode / missing store */ });
+    return () => {
+      cancelled = true;
+    };
+  }, [local, id]);
   const onReplacePicked = useCallback((file: File | undefined) => {
     if (file) setReplaceCandidate(file);
   }, []);
@@ -283,7 +303,7 @@ export function ControllerView({
 
   // One-time email list prompt after a few minutes of presenting. Waits for
   // the first-run tutorial to be out of the way.
-  const newsletter = useNewsletterPrompt(!onboardingOpen);
+  const newsletter = useNewsletterPrompt(brandingEnabled && !onboardingOpen);
 
   const syncOnline = async () => {
     if (await sync(currentSlide)) onSynced();
@@ -399,15 +419,12 @@ export function ControllerView({
     viewerUrl: shareViewerUrl,
   } = useJoinUrls(id);
   const { passphrase = "" } = getSessionAuth(id);
-  const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
 
-  // Open the viewer in its named window (reused across opens, so no duplicates)
-  // and dismiss the prompt. Passing a feature string forces a separate window
-  // rather than a tab in the controller's window, so it never steals the active
-  // tab here. Tracks whether a popup blocker got in the way.
+  // Open the viewer in a named tab (reused across opens, so no duplicates)
+  // and dismiss the prompt. Omit window features so the browser opens a tab
+  // instead of a popup. Tracks whether a popup blocker got in the way.
   const openViewer = () => {
-    const features = "popup,width=1280,height=800";
-    const w = window.open(viewerUrl, `presio-viewer-${id}`, features);
+    const w = window.open(viewerUrl, `presio-viewer-${id}`);
     setViewerBlocked(!w);
     if (w) {
       lsSetString(viewerOpenedKey(id), "true");
@@ -503,7 +520,7 @@ export function ControllerView({
       <button
         type="button"
         onClick={openViewer}
-        title={viewerBlocked ? "Viewer window blocked — click to open it" : "Open viewer window"}
+        title={viewerBlocked ? "Viewer tab blocked — click to open it" : "Open viewer in a new tab"}
         className={`inline-flex items-center gap-1.5 h-8 px-2.5 text-sm font-semibold rounded-md transition-colors ${viewerBlocked
           ? "text-amber-500 bg-amber-500/10 hover:bg-amber-500/20"
           : "text-foreground hover:bg-accent"
@@ -546,6 +563,7 @@ export function ControllerView({
       <ControllerHeader
         id={id}
         local={local}
+        peerSynced={peerSynced}
         blanked={blanked}
         showingCode={showCode && !local}
         compact={isMobile}
@@ -719,6 +737,26 @@ export function ControllerView({
                 {replacing ? "Replacing…" : "Replace PDF…"}
               </Button>
             </div>
+            {!local && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={savingOffline || offlineReady}
+                onClick={async () => {
+                  setSavingOffline(true);
+                  try {
+                    await onKeepOffline();
+                    setOfflineReady(true);
+                  } catch (e) {
+                    window.alert(e instanceof Error ? e.message : "Failed to save presentation offline");
+                  } finally {
+                    setSavingOffline(false);
+                  }
+                }}
+              >
+                {offlineReady ? "Available offline" : savingOffline ? "Saving…" : "Make available offline"}
+              </Button>
+            )}
           </section>
 
           <Separator />
@@ -858,22 +896,17 @@ export function ControllerView({
         <DialogOverlay onClose={() => setViewerPromptOpen(false)}>
           <div className="flex flex-col items-center gap-4 text-center">
             <p className="text-xs text-muted-foreground">
-              Hold <span className="font-medium text-foreground">{isMac ? "⌥ Option" : "Option/Alt"}</span> and click to open it in its own window.
+              The viewer opens in a new tab.
               <br />
-              <br />
-              Drag the new window to a different screen to present.
+              Drag that tab to a different screen to present.
             </p>
             <div className="flex items-center gap-2">
-              <kbd className="inline-flex items-center justify-center h-9 min-w-9 px-2 rounded-md border border-border bg-muted text-sm font-medium text-muted-foreground shadow-sm">
-                {isMac ? <Option size={15} /> : "Option/Alt"}
-              </kbd>
-              <Plus size={14} className="text-muted-foreground" />
               <button
                 type="button"
                 onClick={openViewer}
                 className={cn(buttonVariants({ variant: "default" }))}
               >
-                Open Viewer Window
+                Open Viewer
               </button>
             </div>
             <button
@@ -894,11 +927,11 @@ export function ControllerView({
         />
       )}
 
-      {newsletter.open && <NewsletterDialog onClose={newsletter.close} />}
+      {brandingEnabled && newsletter.open && <NewsletterDialog onClose={newsletter.close} />}
 
       {/* Add-to-home-screen — touch devices using this phone/tablet as the
           presenter's controller. Self-gates to touch + not-installed + once. */}
-      <InstallPrompt />
+      {brandingEnabled && <InstallPrompt />}
     </div>
   );
 }

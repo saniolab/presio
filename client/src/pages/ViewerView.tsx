@@ -18,6 +18,7 @@ import { ViewerHint } from "@/components/ViewerHint";
 export function ViewerView({
   id,
   local,
+  peerSynced,
   deck,
   canvasRef,
   blanked,
@@ -35,6 +36,7 @@ export function ViewerView({
 }: {
   id: string;
   local: boolean;
+  peerSynced: boolean;
   deck: Deck;
   canvasRef: React.RefObject<HTMLDivElement | null>;
   blanked: boolean;
@@ -199,7 +201,7 @@ export function ViewerView({
           <span className={`transition-opacity duration-300 ${
             cursorVisible ? "opacity-100" : "opacity-0 pointer-events-none"
           }`}>
-            <ConnectionIndicator dark local={local} />
+            <ConnectionIndicator dark local={local} peerSynced={peerSynced} />
           </span>
         )}
         {outOfSync && (

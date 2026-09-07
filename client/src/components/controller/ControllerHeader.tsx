@@ -5,6 +5,7 @@ import type { DeckWatchMode, DeckWatchStatus } from "@/lib/deckWatcher";
 import { PresioLogo } from "@/components/PresioLogo";
 import { ConnectionIndicator } from "@/components/ConnectionIndicator";
 import { DeckControl } from "@/components/controller/DeckControl";
+import { brandingEnabled } from "@/lib/flags";
 
 // Shared top bar for both the desktop and mobile controller. The right-hand
 // `actions` slot is where the two surfaces differ: a button toolbar on desktop,
@@ -12,6 +13,7 @@ import { DeckControl } from "@/components/controller/DeckControl";
 export function ControllerHeader({
   id,
   local,
+  peerSynced = false,
   blanked = false,
   showingCode = false,
   compact = false,
@@ -29,6 +31,8 @@ export function ControllerHeader({
 }: {
   id: string;
   local: boolean;
+  /** Same-browser viewer is following over BroadcastChannel. */
+  peerSynced?: boolean;
   blanked?: boolean;
   /** Whether the join code / QR is currently shown on all viewers. */
   showingCode?: boolean;
@@ -80,8 +84,14 @@ export function ControllerHeader({
           to="/"
           className="flex items-center gap-1.5 text-sm font-semibold hover:text-muted-foreground transition-colors"
         >
-          <PresioLogo className="h-4 w-auto" />
-          Presio
+          {brandingEnabled ? (
+            <>
+              <PresioLogo className="h-4 w-auto" />
+              Presio
+            </>
+          ) : (
+            "Home"
+          )}
         </Link>
         <span className="text-muted-foreground/40">|</span>
         {!local &&
@@ -93,7 +103,7 @@ export function ControllerHeader({
               <span className="font-mono font-bold tracking-widest select-all">{id}</span>
             </>
           ))}
-        <ConnectionIndicator local={local} />
+        <ConnectionIndicator local={local} peerSynced={peerSynced} />
         {local && (
           <span className="text-xs font-medium text-amber-600 dark:text-amber-500">Local</span>
         )}
