@@ -9,6 +9,7 @@ import { idbPut } from "@/lib/localStore";
 import { supabase } from "@/lib/supabaseClient";
 import { PresioLogo } from "@/components/PresioLogo";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { brandingEnabled } from "@/lib/flags";
 import { ValidityBadge, ValidityDot } from "./ValidityBadge";
 import { PageDetailModal } from "./PageDetailModal";
 import "@/lib/pdf"; // ensure worker is configured
@@ -224,9 +225,13 @@ export default function CheckerPage() {
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-3 border-b">
         <div className="flex items-center gap-2.5">
-          <PresioLogo className="h-6 w-6" />
-          <span className="text-sm font-medium tracking-tight">Presio</span>
-          <span className="text-muted-foreground text-sm">/</span>
+          {brandingEnabled && (
+            <>
+              <PresioLogo className="h-6 w-6" />
+              <span className="text-sm font-medium tracking-tight">Presio</span>
+              <span className="text-muted-foreground text-sm">/</span>
+            </>
+          )}
           <span className="text-sm text-muted-foreground">Sidecar checker</span>
         </div>
         <div className="flex items-center gap-1">
@@ -247,7 +252,9 @@ export default function CheckerPage() {
             <div className="text-center space-y-1.5 max-w-sm">
               <h1 className="text-xl font-semibold tracking-tight">Inspect sidecar attachments</h1>
               <p className="text-sm text-muted-foreground">
-                Upload a Presio PDF to see per-page thumbnails and validate embedded speaker notes and media sidecars.{" "}
+                {brandingEnabled
+                  ? "Upload a Presio PDF to see per-page thumbnails and validate embedded speaker notes and media sidecars. "
+                  : "Upload a PDF to see per-page thumbnails and validate embedded speaker notes and media sidecars. "}
                 <a
                   href="https://github.com/benedict-armstrong/presio-typst-package"
                   target="_blank"

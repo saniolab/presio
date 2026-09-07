@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import fs from "fs";
 import http from "http";
 import path from "path";
+import { createHmac } from "crypto";
 import request from "supertest";
 import type { Server } from "socket.io";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -27,6 +28,22 @@ const future = () => new Date(Date.now() + 86_400_000).toISOString();
 
 // A real PDF — the claim route parses the upload with pdf.js to count pages.
 const realPdf = fs.readFileSync(path.join(import.meta.dirname, "../example/example.pdf"));
+
+function handoffToken(session: string): string {
+  const encode = (value: object) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  const header = encode({ alg: "HS256", typ: "JWT" });
+  const payload = encode({
+    iss: "https://courses.example.test",
+    aud: "presio",
+    sub: "instructor-1",
+    session,
+    exp: Math.floor(Date.now() / 1000) + 300,
+  });
+  const signature = createHmac("sha256", "jwt-secret")
+    .update(`${header}.${payload}`)
+    .digest("base64url");
+  return `${header}.${payload}.${signature}`;
+}
 
 const baseRow = (over: Partial<SessionRow>): SessionRow => ({
   id: "ABC123",
@@ -66,6 +83,68 @@ describe("GET /api/sessions/:id", () => {
     const app = appWith(new FakeSupabase([baseRow({ status: "expired" })]));
     const res = await request(app).get("/api/sessions/ABC123");
     expect(res.status).toBe(404);
+  });
+});
+
+describe("externally managed presentations", () => {
+  it("creates a synced session using the service key", async () => {
+    process.env.PRESIO_SERVICE_API_KEY = "service-secret";
+    const fake = new FakeSupabase();
+    const expiresAt = future();
+
+    const res = await request(appWith(fake))
+      .post("/api/sessions/synced")
+      .set("Authorization", "Bearer service-secret")
+      .field("filename", "course-de.pdf")
+      .field("external_id", "locale-1")
+      .field("expires_at", expiresAt)
+      .attach("pdf", realPdf, { filename: "course-de.pdf", contentType: "application/pdf" });
+
+    expect(res.status).toBe(200);
+    expect(res.body.id).toHaveLength(6);
+    expect(res.body.controllerToken).toBeTruthy();
+    expect(res.body.presenterUrl).toContain(`/s/${res.body.id}?role=controller`);
+    expect(fake.uploaded.has(`${res.body.id}.pdf`)).toBe(true);
+    expect(fake.rows[0].expires_at).toBe(expiresAt);
+  });
+
+  it("rejects synced session creation without the service key", async () => {
+    process.env.PRESIO_SERVICE_API_KEY = "service-secret";
+    const res = await request(appWith(new FakeSupabase()))
+      .post("/api/sessions/synced")
+      .field("filename", "course-de.pdf")
+      .field("expires_at", future())
+      .attach("pdf", realPdf, { filename: "course-de.pdf", contentType: "application/pdf" });
+
+    expect(res.status).toBe(401);
+  });
+
+  it("exchanges a valid handoff JWT for controller credentials", async () => {
+    process.env.PRESIO_HANDOFF_JWT_SECRET = "jwt-secret";
+    process.env.PRESIO_HANDOFF_JWT_ISSUER = "https://courses.example.test";
+    const app = appWith(new FakeSupabase([baseRow({})]));
+
+    const res = await request(app)
+      .post("/api/auth/handoff")
+      .send({ token: handoffToken("ABC123") });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      sessionId: "ABC123",
+      controllerToken: "secret-token",
+      passphrase: "PASS1234",
+    });
+  });
+
+  it("rejects an invalid handoff JWT", async () => {
+    process.env.PRESIO_HANDOFF_JWT_SECRET = "jwt-secret";
+    process.env.PRESIO_HANDOFF_JWT_ISSUER = "https://courses.example.test";
+
+    const res = await request(appWith(new FakeSupabase([baseRow({})])))
+      .post("/api/auth/handoff")
+      .send({ token: `${handoffToken("ABC123")}broken` });
+
+    expect(res.status).toBe(401);
   });
 });
 

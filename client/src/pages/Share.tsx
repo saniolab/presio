@@ -6,6 +6,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { idbGet } from "@/lib/localStore";
 import { useAuth } from "@/lib/useAuth";
 import { authEnabled } from "@/lib/authMode";
+import { appTitle } from "@/lib/flags";
 import { useClaim } from "@/lib/useClaim";
 import { LoginDialog } from "@/components/LoginDialog";
 import { LanAddressField } from "@/components/LanAddressField";
@@ -57,7 +58,7 @@ export default function Share() {
         }
       } catch { /* ignore */ }
     })();
-    return () => { cancelled = true; document.title = "Presio"; };
+    return () => { cancelled = true; document.title = appTitle; };
   }, [id]);
 
   // Don't auto-open the viewer here — the controller prompts the presenter to

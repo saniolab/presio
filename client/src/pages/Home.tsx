@@ -7,6 +7,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { AccountControl } from "@/components/AccountControl";
 import { PresioLogo } from "@/components/PresioLogo";
 import { MobileNotice } from "@/components/MobileNotice";
+import { brandingEnabled } from "@/lib/flags";
 import { CodeBlock } from "@/components/CodeBlock";
 import { ConfirmReplaceDialog } from "@/components/controller/ConfirmReplaceDialog";
 import { ConfirmReuploadDialog } from "@/components/controller/ConfirmReuploadDialog";
@@ -899,25 +900,32 @@ export default function Home() {
           }`}
       >
         <div className="flex items-center gap-2">
-          <PresioLogo className="h-5 w-auto text-foreground" />
-          <span className="font-mono text-base font-semibold tracking-tight">Presio</span>
+          {brandingEnabled && (
+            <>
+              <PresioLogo className="h-5 w-auto text-foreground" />
+              <span className="font-mono text-base font-semibold tracking-tight">Presio</span>
+            </>
+          )}
         </div>
         <div className="flex items-center gap-5">
-          <Link
-            to="/about"
-            className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground sm:inline"
-          >
-            About
-          </Link>
+          {brandingEnabled && (
+            <Link
+              to="/about"
+              className="hidden text-sm text-muted-foreground transition-colors hover:text-foreground sm:inline"
+            >
+              About
+            </Link>
+          )}
           <AccountControl />
           <ThemeToggle />
         </div>
       </nav>
 
       {/* ---------------------------------------------------------------- hero */}
-      <section className="relative px-6 pb-24 pt-16">
-        <div className="mx-auto grid max-w-6xl grid-cols-1 items-center gap-12 md:grid-cols-[0.92fr_1.08fr] md:gap-20">
+      <section className={`relative px-6 ${brandingEnabled ? "pb-24 pt-16" : "pb-12 pt-10"}`}>
+        <div className={`mx-auto grid grid-cols-1 items-center ${brandingEnabled ? "max-w-6xl gap-12 md:grid-cols-[0.92fr_1.08fr] md:gap-20" : "max-w-xl"}`}>
           <div>
+            {brandingEnabled && (
             <div className='max-w-xl'>
               <h1 className="mb-8 font-mono text-4xl font-semibold leading-[1.06] tracking-tight md:text-5xl">
                 Better PDF presentations.
@@ -932,6 +940,7 @@ export default function Home() {
                 <PitchTicker />
               </div>
             </div>
+            )}
 
             <div className="py-6">
               {/* Live reload needs the File System Access API, which only
@@ -1160,6 +1169,8 @@ export default function Home() {
             </div>
           </div>
 
+          {brandingEnabled && (
+          <>
           {/* mock browser + phone visual, purely illustrative */}
           <div className="relative mx-auto aspect-[4/3.1] w-full max-w-115 md:mx-0 md:max-w-none" aria-hidden="true">
             <div className="absolute inset-0 mr-[8%] mb-[10%] flex flex-col overflow-hidden rounded-xl border bg-card shadow-lg">
@@ -1215,9 +1226,13 @@ export default function Home() {
               </div>
             </div>
           </div>
+          </>
+          )}
         </div>
       </section>
 
+      {brandingEnabled && (
+      <>
       {/* ---------------------------------------------------------- integrations */}
       <section id="integrations" className="px-6 py-24 md:py-28">
         <ScrollReveal className="mx-auto max-w-6xl">
@@ -1356,6 +1371,8 @@ Hello world.
           </div>
         </ScrollReveal>
       </footer>
+      </>
+      )}
 
       {replaceTarget && replaceFile && (
         <ConfirmReplaceDialog
@@ -1398,7 +1415,7 @@ Hello world.
         }}
       />
 
-      <MobileNotice />
+      {brandingEnabled && <MobileNotice />}
     </div>
   );
 }

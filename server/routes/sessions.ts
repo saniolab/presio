@@ -5,7 +5,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { nanoid } from "nanoid";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { isValidHttpsUrl, isValidTotalSlides, MAX_TOTAL_SLIDES } from "../validation.js";
-import { getBearerToken, requireUser, resolveOptionalUserId, safeEqual } from "../auth.js";
+import {
+  getBearerToken,
+  requireUser,
+  hasServiceKey,
+  resolveOptionalUserId,
+  safeEqual,
+  verifyHandoffJwt,
+} from "../auth.js";
 import { isLocalMode } from "../local/mode.js";
 import { clearSessionState, type SocketState } from "../socket.js";
 import { baseUrl } from "../lib/baseUrl.js";
@@ -23,6 +30,9 @@ export interface RouteDeps {
 // expire (and are marked 'expired' on end), so this caps concurrent —
 // not lifetime — presentations.
 export const MAX_CONCURRENT_PRESENTATIONS = 3;
+// Public agent uploads stay at 50MB in the docs; managed course decks (200+
+// merged slides) can be larger, so the session upload path allows 350MB.
+const MAX_PDF_BYTES = 350 * 1024 * 1024;
 
 /**
  * Read a multipart text field that may legitimately appear at most once.
@@ -38,7 +48,7 @@ function singleField(value: unknown): string | null {
 }
 
 export function registerSessionRoutes(app: express.Express, { supabase, io, socketState }: RouteDeps) {
-  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_PDF_BYTES } });
 
   // Multer/busboy failures are otherwise unhandled: they carry no `status`, so
   // they fall past the body-parser handler in app.ts to Express's default one,
@@ -54,7 +64,7 @@ export function registerSessionRoutes(app: express.Express, { supabase, io, sock
         if (!err) return next();
         const code = (err as { code?: string }).code;
         if (code === "LIMIT_FILE_SIZE") {
-          res.status(413).json({ error: "PDF exceeds the 50MB limit" });
+          res.status(413).json({ error: "PDF exceeds the 350MB limit" });
           return;
         }
         console.error(`Upload failed for ${req.method} ${req.path}:`, err);
@@ -63,6 +73,96 @@ export function registerSessionRoutes(app: express.Express, { supabase, io, sock
         });
       });
   };
+
+  // Trusted server-to-server entry point for external presentation systems.
+  // Unlike a browser claim, this creates the final hosted session in one request.
+  app.post("/api/sessions/synced", uploadField("pdf"), async (req, res) => {
+    try {
+      if (!hasServiceKey(req)) {
+        res.status(401).json({ error: "Invalid service key" });
+        return;
+      }
+      const file = req.file;
+      if (!file || file.mimetype !== "application/pdf") {
+        res.status(400).json({ error: "A PDF file is required" });
+        return;
+      }
+      const expiresAt = new Date(String(req.body.expires_at || ""));
+      if (!Number.isFinite(expiresAt.getTime()) || expiresAt <= new Date()) {
+        res.status(400).json({ error: "A future expires_at is required" });
+        return;
+      }
+      const doc = await getDocument({ data: new Uint8Array(file.buffer) }).promise;
+      const totalSlides = doc.numPages;
+      doc.destroy();
+      if (!isValidTotalSlides(totalSlides)) {
+        res.status(400).json({ error: `PDF exceeds the ${MAX_TOTAL_SLIDES}-page limit` });
+        return;
+      }
+
+      const controllerToken = nanoid(24);
+      const passphrase = generatePassphrase();
+      const filename = String(req.body.filename || file.originalname).replace(/\.pdf$/i, "");
+      const id = await insertSession(supabase, {
+        pdf_path: "",
+        filename,
+        total_slides: totalSlides,
+        controller_token: controllerToken,
+        passphrase,
+        local: false,
+        user_id: null,
+        expires_at: expiresAt.toISOString(),
+      });
+      if (!id) {
+        res.status(500).json({ error: "Failed to create session" });
+        return;
+      }
+      const pdfPath = `${id}.pdf`;
+      const { error: uploadError } = await supabase.storage
+        .from("presentations")
+        .upload(pdfPath, file.buffer, { contentType: "application/pdf", upsert: true });
+      if (uploadError) {
+        await supabase.from("sessions").update({ status: "expired" }).eq("id", id);
+        res.status(500).json({ error: "Failed to upload PDF" });
+        return;
+      }
+      await supabase.from("sessions").update({ pdf_path: pdfPath }).eq("id", id);
+
+      res.json({
+        id,
+        controllerToken,
+        passphrase,
+        presenterUrl: `${baseUrl(req)}/s/${id}?role=controller`,
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  // Exchange a short-lived external handoff JWT for controller credentials.
+  app.post("/api/auth/handoff", async (req, res) => {
+    const claims = verifyHandoffJwt(String(req.body.token || ""));
+    if (!claims) {
+      res.status(401).json({ error: "Invalid or expired handoff token" });
+      return;
+    }
+    const { data, error } = await supabase
+      .from("sessions")
+      .select("id, controller_token, passphrase")
+      .eq("id", claims.session)
+      .neq("status", "expired")
+      .single();
+    if (error || !data) {
+      res.status(404).json({ error: "Session not found" });
+      return;
+    }
+    res.json({
+      sessionId: data.id,
+      controllerToken: data.controller_token,
+      passphrase: data.passphrase,
+    });
+  });
 
   /**
    * POST /api/present — upload a PDF; get a URL that opens a local presentation
@@ -555,6 +655,7 @@ export function registerSessionRoutes(app: express.Express, { supabase, io, sock
         return;
       }
       const authorized =
+        hasServiceKey(req) ||
         safeEqual(req.get("x-controller-token") || "", row.controller_token) ||
         (!isLocalMode && !!user && row.user_id === user);
       if (!authorized) {
@@ -597,6 +698,14 @@ export function registerSessionRoutes(app: express.Express, { supabase, io, sock
         current_slide: clampedSlide,
       };
       if (newFilename) update.filename = newFilename;
+      if (hasServiceKey(req) && req.body.expires_at) {
+        const expiresAt = new Date(String(req.body.expires_at));
+        if (!Number.isFinite(expiresAt.getTime()) || expiresAt <= new Date()) {
+          res.status(400).json({ error: "expires_at must be in the future" });
+          return;
+        }
+        update.expires_at = expiresAt.toISOString();
+      }
       const { error: updateError } = await supabase
         .from("sessions")
         .update(update)

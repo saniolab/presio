@@ -723,6 +723,8 @@ services:
         # of GoTrue; fall back to GITHUB_ENABLED / AUTHENTIK_ENABLED.
         VITE_AUTH_GITHUB: ${VITE_AUTH_GITHUB:-${GITHUB_ENABLED:-true}}
         VITE_AUTH_AUTHENTIK: ${VITE_AUTH_AUTHENTIK:-${AUTHENTIK_ENABLED:-false}}
+        # Hide marketing chrome (homepage pitch, newsletter, wordmark). Default on.
+        VITE_BRANDING: ${VITE_BRANDING:-true}
     restart: unless-stopped
     networks:
       default:
@@ -741,7 +743,10 @@ services:
       # handoff URLs, OpenAPI self-references). Pinned to the configured domain
       # so a spoofed Host header can't poison them; without it the server falls
       # back to the request's own Host, which the client controls.
-      PUBLIC_BASE_URL: https://${APP_HOST}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://${APP_HOST}}
+      PRESIO_SERVICE_API_KEY: ${PRESIO_SERVICE_API_KEY}
+      PRESIO_HANDOFF_JWT_SECRET: ${PRESIO_HANDOFF_JWT_SECRET}
+      PRESIO_HANDOFF_JWT_ISSUER: ${PRESIO_HANDOFF_JWT_ISSUER}
       ANALYTICS_URL: ${ANALYTICS_URL:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}

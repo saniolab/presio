@@ -22,6 +22,7 @@ services:
         VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY: ${ANON_KEY}
         VITE_AUTH_GITHUB: ${VITE_AUTH_GITHUB:-${GITHUB_ENABLED:-true}}
         VITE_AUTH_AUTHENTIK: ${VITE_AUTH_AUTHENTIK:-${AUTHENTIK_ENABLED:-false}}
+        VITE_BRANDING: ${VITE_BRANDING:-true}
         # The deploying commit, so /healthz identifies exactly what is running
         # here. deploy-staging.yml sets this and then waits for that value to
         # appear before calling the deploy good.

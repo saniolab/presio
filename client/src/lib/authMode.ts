@@ -1,3 +1,5 @@
+import { viteFlag } from "@/lib/flags";
+
 // Whether accounts / login are available at all in this build. Auth is backed
 // by Supabase (GoTrue); the fully-local / offline build bakes in an empty
 // VITE_SUPABASE_URL (see local.docker-compose.yml + supabaseClient.ts's
@@ -14,13 +16,5 @@ export const authEnabled = Boolean(import.meta.env.VITE_SUPABASE_URL);
 // OAuth buttons are baked in at build time (Vite inlines VITE_*). Unset
 // VITE_AUTH_GITHUB keeps the historical GitHub button; Authentik is opt-in.
 // Authentik is a GoTrue custom OIDC provider (custom:authentik).
-function viteFlag(value: unknown, defaultOn: boolean): boolean {
-  if (value === undefined || value === "") return defaultOn;
-  const normalized = String(value).trim().toLowerCase();
-  if (["false", "0", "off", "no"].includes(normalized)) return false;
-  if (["true", "1", "on", "yes"].includes(normalized)) return true;
-  return defaultOn;
-}
-
 export const githubOAuthEnabled = viteFlag(import.meta.env.VITE_AUTH_GITHUB, true);
 export const authentikOAuthEnabled = viteFlag(import.meta.env.VITE_AUTH_AUTHENTIK, false);

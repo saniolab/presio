@@ -114,6 +114,10 @@ which Authentik does not serve (you get Authentik’s “Not Found” page).
 After changing these values, recreate `auth`, run `authentik-provider-init`,
 and rebuild `presio` (`VITE_AUTH_AUTHENTIK` is baked into the client).
 
+Set `VITE_BRANDING=false` to hide marketing chrome (homepage pitch, “Enjoying
+Presio?” newsletter, install prompt, wordmark). The drop zone, join code, and
+recents stay. Rebuild `presio` after changing it.
+
 Email/password is enabled too (`ENABLE_EMAIL_SIGNUP=true`). Set
 `ENABLE_EMAIL_AUTOCONFIRM=false` and fill `SMTP_*` for real verification
 emails.

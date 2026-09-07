@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type express from "express";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
@@ -15,6 +15,52 @@ export function safeEqual(a: string, b: string): boolean {
 export function getBearerToken(req: express.Request): string {
   const authHeader = req.headers.authorization || "";
   return authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+}
+
+export function hasServiceKey(req: express.Request): boolean {
+  const configured = process.env.PRESIO_SERVICE_API_KEY || "";
+  return configured.length > 0 && safeEqual(getBearerToken(req), configured);
+}
+
+interface HandoffClaims {
+  iss: string;
+  aud: string;
+  sub: string;
+  session: string;
+  exp: number;
+}
+
+export function verifyHandoffJwt(token: string): HandoffClaims | null {
+  const secret = process.env.PRESIO_HANDOFF_JWT_SECRET || "";
+  const issuer = process.env.PRESIO_HANDOFF_JWT_ISSUER || "";
+  if (!secret || !issuer) return null;
+
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [encodedHeader, encodedPayload, encodedSignature] = parts;
+  const expected = createHmac("sha256", secret)
+    .update(`${encodedHeader}.${encodedPayload}`)
+    .digest("base64url");
+  if (!safeEqual(encodedSignature, expected)) return null;
+
+  try {
+    const header = JSON.parse(Buffer.from(encodedHeader, "base64url").toString());
+    const claims = JSON.parse(Buffer.from(encodedPayload, "base64url").toString()) as HandoffClaims;
+    if (
+      header.alg !== "HS256" ||
+      claims.iss !== issuer ||
+      claims.aud !== "presio" ||
+      !claims.sub ||
+      !claims.session ||
+      !Number.isFinite(claims.exp) ||
+      claims.exp <= Math.floor(Date.now() / 1000)
+    ) {
+      return null;
+    }
+    return claims;
+  } catch {
+    return null;
+  }
 }
 
 /** Resolve the owner from an optional bearer token. Anonymous callers are fine —
