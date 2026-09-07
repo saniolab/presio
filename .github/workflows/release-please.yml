@@ -21,6 +21,7 @@ permissions:
 
 jobs:
   release:
+    if: github.repository == 'benedict-armstrong/presio'
     runs-on: ubuntu-latest
     steps:
       - name: Check token

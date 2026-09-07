@@ -19,9 +19,11 @@ concurrency:
 
 jobs:
   tests:
+    if: github.repository == 'benedict-armstrong/presio'
     uses: ./.github/workflows/tests.yml
 
   promote:
+    if: github.repository == 'benedict-armstrong/presio'
     needs: tests
     runs-on: ubuntu-latest
     permissions:
@@ -43,6 +45,7 @@ jobs:
           }
 
   deploy:
+    if: github.repository == 'benedict-armstrong/presio'
     # A push made with GITHUB_TOKEN does not trigger deploy-staging.yml's own
     # `push` trigger, so the deploy is called explicitly here. Manual rollback
     # pushes, made with a human token, do fire that trigger.

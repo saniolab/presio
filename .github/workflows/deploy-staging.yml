@@ -50,6 +50,7 @@ env:
 
 jobs:
   deploy:
+    if: github.repository == 'benedict-armstrong/presio'
     runs-on: ubuntu-latest
     environment:
       name: staging
