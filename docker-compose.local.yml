@@ -1,0 +1,51 @@
+# Laptop overlay for the prod stack: HTTP on *.test (127.0.0.1), no Traefik/TLS.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.local.yml up -d --build
+#
+# Expected .env (*.test resolves to loopback):
+#   APP_HOST=presio.test
+#   SITE_URL=http://presio.test:3001
+#   SUPABASE_HOST=presio-supabase.test
+#   SUPABASE_PUBLIC_URL=http://presio-supabase.test:8000
+#   API_EXTERNAL_URL=http://presio-supabase.test:8000
+#   PUBLIC_BASE_URL=http://presio.test:3001
+#   ALLOWED_ORIGIN=http://presio.test:3001
+#
+# extra_hosts is required: inside the container, *.test would otherwise be
+# 127.0.0.1 of the container itself. host-gateway is the Mac, where these ports
+# are published.
+
+name: presio
+
+services:
+  presio:
+    ports:
+      - "127.0.0.1:3001:3001"
+    extra_hosts:
+      - "${APP_HOST}:host-gateway"
+      - "${SUPABASE_HOST}:host-gateway"
+    labels:
+      traefik.enable: "false"
+
+  kong:
+    ports:
+      - "127.0.0.1:8000:8000"
+    extra_hosts:
+      - "${APP_HOST}:host-gateway"
+      - "${SUPABASE_HOST}:host-gateway"
+    labels:
+      traefik.enable: "false"
+
+  umami:
+    labels:
+      traefik.enable: "false"
+
+  # Herd (and other local Postgres) already bind 5432/6543. The pooler only
+  # published those for host-side psql; the stack talks to `db` over Docker DNS.
+  supavisor:
+    ports: !override []
+
+networks:
+  traefik-servicenet:
+    name: traefik-servicenet
+    external: false
