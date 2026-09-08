@@ -18,6 +18,8 @@ export type RuntimeConfig = {
   sentryDsn: string;
   githubOAuth: boolean;
   authentikOAuth: boolean;
+  emailAuth: boolean;
+  publicSignup: boolean;
   branding: boolean;
   endDeletes: boolean;
 };
@@ -35,6 +37,8 @@ function fromVite(): RuntimeConfig {
     sentryDsn: String(import.meta.env.VITE_SENTRY_DSN ?? ""),
     githubOAuth: viteFlag(import.meta.env.VITE_AUTH_GITHUB, true),
     authentikOAuth: viteFlag(import.meta.env.VITE_AUTH_AUTHENTIK, false),
+    emailAuth: viteFlag(import.meta.env.VITE_EMAIL_AUTH, true),
+    publicSignup: viteFlag(import.meta.env.VITE_PUBLIC_SIGNUP, false),
     branding: viteFlag(import.meta.env.VITE_BRANDING, true),
     endDeletes: viteFlag(import.meta.env.VITE_END_DELETES, true),
   };
@@ -70,6 +74,8 @@ export const runtimeConfig: RuntimeConfig = {
   sentryDsn: pickString(runtime.sentryDsn, vite.sentryDsn),
   githubOAuth: pickBool(runtime.githubOAuth, vite.githubOAuth),
   authentikOAuth: pickBool(runtime.authentikOAuth, vite.authentikOAuth),
+  emailAuth: pickBool(runtime.emailAuth, vite.emailAuth),
+  publicSignup: pickBool(runtime.publicSignup, vite.publicSignup),
   branding: pickBool(runtime.branding, vite.branding),
   endDeletes: pickBool(runtime.endDeletes, vite.endDeletes),
 };

@@ -15,3 +15,5 @@ export const authEnabled = Boolean(runtimeConfig.supabaseUrl);
 // GitHub keeps the historical button; Authentik is opt-in.
 export const githubOAuthEnabled = runtimeConfig.githubOAuth;
 export const authentikOAuthEnabled = runtimeConfig.authentikOAuth;
+export const emailAuthEnabled = runtimeConfig.emailAuth;
+export const publicSignupEnabled = runtimeConfig.publicSignup;

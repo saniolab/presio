@@ -7,11 +7,14 @@ export type PublicRuntimeConfig = {
   sentryDsn: string;
   githubOAuth: boolean;
   authentikOAuth: boolean;
+  emailAuth: boolean;
+  publicSignup: boolean;
   branding: boolean;
   endDeletes: boolean;
 };
 
 export function publicRuntimeConfig(): PublicRuntimeConfig {
+  const emailAuth = envFlag(process.env.ENABLE_EMAIL_SIGNUP, true);
   return {
     supabaseUrl: (process.env.SUPABASE_URL ?? "").trim(),
     supabaseAnonKey: (process.env.SUPABASE_ANON_KEY ?? process.env.ANON_KEY ?? "").trim(),
@@ -21,6 +24,8 @@ export function publicRuntimeConfig(): PublicRuntimeConfig {
       process.env.VITE_AUTH_AUTHENTIK ?? process.env.AUTHENTIK_ENABLED,
       false,
     ),
+    emailAuth,
+    publicSignup: emailAuth && envFlag(process.env.ENABLE_PUBLIC_SIGNUP, false),
     branding: envFlag(process.env.VITE_BRANDING, true),
     endDeletes: endDeletesPresentation(),
   };

@@ -17,6 +17,8 @@ const keys = [
   "VITE_BRANDING",
   "GITHUB_ENABLED",
   "AUTHENTIK_ENABLED",
+  "ENABLE_EMAIL_SIGNUP",
+  "ENABLE_PUBLIC_SIGNUP",
   "PRESIO_END_DELETES",
 ] as const;
 
@@ -44,6 +46,8 @@ describe("publicRuntimeConfig", () => {
     process.env.VITE_BRANDING = "false";
     process.env.GITHUB_ENABLED = "false";
     process.env.AUTHENTIK_ENABLED = "true";
+    process.env.ENABLE_EMAIL_SIGNUP = "true";
+    process.env.ENABLE_PUBLIC_SIGNUP = "false";
     process.env.PRESIO_END_DELETES = "false";
 
     const config = publicRuntimeConfig();
@@ -53,6 +57,8 @@ describe("publicRuntimeConfig", () => {
     expect(config.branding).toBe(false);
     expect(config.githubOAuth).toBe(false);
     expect(config.authentikOAuth).toBe(true);
+    expect(config.emailAuth).toBe(true);
+    expect(config.publicSignup).toBe(false);
     expect(config.endDeletes).toBe(false);
 
     const script = publicRuntimeConfigScript();

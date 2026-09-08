@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { DialogOverlay } from "@/components/ui/dialog-overlay";
-import { authentikOAuthEnabled, githubOAuthEnabled } from "@/lib/authMode";
+import { authentikOAuthEnabled, emailAuthEnabled, githubOAuthEnabled, publicSignupEnabled } from "@/lib/authMode";
 import { useAuth, type OAuthProviderId } from "@/lib/useAuth";
 
 function GitHubIcon() {
@@ -91,7 +91,9 @@ export function LoginDialog({ onClose }: { onClose: () => void }) {
         <p className="text-xs text-muted-foreground">
           {mode === "reset"
             ? "Enter your email and we'll send you a reset link and code."
-            : "Log in to share presentations online across devices."}
+            : emailAuthEnabled
+              ? "Log in to share presentations online across devices."
+              : "Log in with your organization account to share presentations online."}
         </p>
       </div>
 
@@ -104,17 +106,20 @@ export function LoginDialog({ onClose }: { onClose: () => void }) {
             </Button>
           ))}
 
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
+          {emailAuthEnabled && (
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-card px-2 text-muted-foreground">or</span>
+              </div>
             </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">or</span>
-            </div>
-          </div>
+          )}
         </>
       )}
 
+      {emailAuthEnabled && (
       <div className="space-y-2">
         <input
           type="email"
@@ -164,8 +169,11 @@ export function LoginDialog({ onClose }: { onClose: () => void }) {
                 : "Log in"}
         </Button>
       </div>
+      )}
 
-      {mode === "signin" && (
+      {!emailAuthEnabled && error && <p className="text-sm text-destructive text-center">{error}</p>}
+
+      {emailAuthEnabled && mode === "signin" && (
         <button
           type="button"
           onClick={() => { setMode("reset"); setResetSent(false); setResetCode(""); setError(""); setInfo(""); }}
@@ -174,6 +182,7 @@ export function LoginDialog({ onClose }: { onClose: () => void }) {
           Forgot password?
         </button>
       )}
+      {emailAuthEnabled && publicSignupEnabled && (
       <button
         type="button"
         onClick={() => { setMode(mode === "signin" ? "signup" : "signin"); setResetSent(false); setResetCode(""); setError(""); setInfo(""); }}
@@ -181,6 +190,7 @@ export function LoginDialog({ onClose }: { onClose: () => void }) {
       >
         {mode === "signin" ? "Need an account? Sign up" : "Already have an account? Log in"}
       </button>
+      )}
     </DialogOverlay>
   );
 }
