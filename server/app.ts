@@ -19,6 +19,7 @@ import { registerAgentDocRoutes } from "./routes/agentDocs.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import type { SocketState } from "./socket.js";
 import { APP_VERSION } from "./version.js";
+import { publicRuntimeConfigScript } from "./lib/publicRuntimeConfig.js";
 
 export interface AppDeps {
   supabase: SupabaseClient;
@@ -118,6 +119,13 @@ export function createApp({ supabase, io, socketState }: AppDeps): express.Expre
     // people already curl when a self-hosted deployment misbehaves also
     // answers "which build is this?".
     res.json({ status: "ok", uptime: process.uptime(), version: APP_VERSION });
+  });
+
+  // Public client settings. Loaded by index.html before the SPA bundle so a
+  // prebuilt image can be configured with .env (no Vite rebuild).
+  app.get("/config.js", (_req, res) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.type("application/javascript").send(publicRuntimeConfigScript());
   });
 
   // Live agent discovery docs (host-aware). Before static/SPA so they aren't

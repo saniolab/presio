@@ -12,6 +12,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      "/config.js": "http://localhost:3001",
       "/api": "http://localhost:3001",
       "/mcp": "http://localhost:3001",
       "/.well-known": "http://localhost:3001",

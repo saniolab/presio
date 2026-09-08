@@ -4,12 +4,13 @@ import { createRoot } from 'react-dom/client'
 import * as Sentry from '@sentry/react'
 import './index.css'
 import App from './App.tsx'
+import { runtimeConfig } from '@/lib/runtimeConfig'
 
-// Error tracking, gated by VITE_SENTRY_DSN (baked in at build time). With no DSN
+// Error tracking, gated by VITE_SENTRY_DSN / runtime config. With no DSN
 // the SDK never initializes, so this is a no-op by default. The DSN can point at
 // Sentry's SaaS or a self-hosted GlitchTip instance. Disabled in Vite dev so
 // local work doesn't spam Sentry.
-const dsn = import.meta.env.VITE_SENTRY_DSN as string | undefined
+const dsn = runtimeConfig.sentryDsn
 if (dsn && import.meta.env.PROD) {
   Sentry.init({
     dsn,
