@@ -6,6 +6,10 @@ node_modules/
 # runtime data, not part of the deploy config.
 deploy/volumes/snippets/
 
+# Host bind-mount of Postgres PGDATA (created on first boot of the prod
+# compose file). Local overlay uses a named volume instead; never commit this.
+deploy/volumes/db/data/
+
 # Playwright E2E artifacts
 /test-results/
 /playwright-report/

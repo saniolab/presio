@@ -45,7 +45,18 @@ services:
   supavisor:
     ports: !override []
 
+  # Docker Desktop bind-mounts PGDATA as root, so the supabase/postgres image
+  # finishes initdb then fails to start ("data directory has wrong ownership")
+  # and every later boot skips init — no postgres/authenticator roles, auth
+  # crash-loops. A named volume keeps container uid ownership.
+  db:
+    volumes:
+      - presio-db-data:/var/lib/postgresql/data
+
 networks:
   traefik-servicenet:
     name: traefik-servicenet
     external: false
+
+volumes:
+  presio-db-data:
