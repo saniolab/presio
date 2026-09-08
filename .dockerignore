@@ -6,6 +6,7 @@ client/dist
 *.env
 **/.env
 .git
+data
 # The self-hosted stack (vendored Supabase volumes + secrets) and the shared
 # reverse proxy are not part of the app image build context.
 deploy

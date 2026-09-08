@@ -13,6 +13,12 @@
 # `traefik-servicenet` (no bundled proxy, no published host ports). TLS is
 # issued by Traefik's `tlschallenge` cert resolver.
 #
+# Persistent state lives in ./data next to this file (created on first boot):
+#   ./data/postgres    Postgres PGDATA
+#   ./data/minio       MinIO object store (synced PDFs)
+#   ./data/storage     leftover file-backend dir used by storage-api / imgproxy
+#   ./data/db-config   pgsodium / Postgres custom config
+#
 # Everything is driven by a root .env (copy from deploy/.env.example). To run:
 #   cp deploy/.env.example .env  # then fill it in
 #   docker compose up -d
@@ -432,14 +438,14 @@ services:
       S3_PROTOCOL_ACCESS_KEY_ID: ${S3_PROTOCOL_ACCESS_KEY_ID}
       S3_PROTOCOL_ACCESS_KEY_SECRET: ${S3_PROTOCOL_ACCESS_KEY_SECRET}
     volumes:
-      - ./deploy/volumes/storage:/var/lib/storage:z
+      - ./data/storage:/var/lib/storage:z
 
   imgproxy:
     container_name: supabase-imgproxy
     image: darthsim/imgproxy:v3.30.1
     restart: unless-stopped
     volumes:
-      - ./deploy/volumes/storage:/var/lib/storage:z
+      - ./data/storage:/var/lib/storage:z
     healthcheck:
       test: ["CMD", "imgproxy", "health"]
       timeout: 5s
@@ -515,15 +521,15 @@ services:
       # Initialize the database settings with JWT_SECRET and JWT_EXP
       - ./deploy/volumes/db/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:Z
       # PGDATA directory is persisted between restarts
-      - ./deploy/volumes/db/data:/var/lib/postgresql/data:Z
+      - ./data/postgres:/var/lib/postgresql/data:Z
       # Changes required for internal supabase data such as _analytics
       - ./deploy/volumes/db/_supabase.sql:/docker-entrypoint-initdb.d/migrations/97-_supabase.sql:Z
       # Changes required for Analytics support
       - ./deploy/volumes/db/logs.sql:/docker-entrypoint-initdb.d/migrations/99-logs.sql:Z
       # Changes required for Pooler support
       - ./deploy/volumes/db/pooler.sql:/docker-entrypoint-initdb.d/migrations/99-pooler.sql:Z
-      # Use named volume to persist pgsodium decryption key between restarts
-      - db-config:/etc/postgresql-custom
+      # Persist pgsodium decryption key between restarts
+      - ./data/db-config:/etc/postgresql-custom
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "postgres", "-h", "localhost"]
       interval: 5s
@@ -623,7 +629,7 @@ services:
       timeout: 10s
       retries: 5
     volumes:
-      - minio-data:/data
+      - ./data/minio:/data
 
   # One-shot: create the S3 bucket that storage-api writes into.
   minio-createbucket:
@@ -805,6 +811,4 @@ networks:
     name: traefik-servicenet
 
 volumes:
-  db-config:
   deno-cache:
-  minio-data:

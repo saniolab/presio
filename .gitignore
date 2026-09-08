@@ -6,9 +6,11 @@ node_modules/
 # runtime data, not part of the deploy config.
 deploy/volumes/snippets/
 
-# Host bind-mount of Postgres PGDATA (created on first boot of the prod
-# compose file). Local overlay uses a named volume instead; never commit this.
+# Host bind-mount of Postgres PGDATA (legacy path; prod now uses ./data/postgres).
 deploy/volumes/db/data/
+
+# Full-stack runtime data next to docker-compose.yml (Postgres, MinIO, storage).
+/data/
 
 # Playwright E2E artifacts
 /test-results/

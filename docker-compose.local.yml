@@ -48,7 +48,8 @@ services:
   # Docker Desktop bind-mounts PGDATA as root, so the supabase/postgres image
   # finishes initdb then fails to start ("data directory has wrong ownership")
   # and every later boot skips init — no postgres/authenticator roles, auth
-  # crash-loops. A named volume keeps container uid ownership.
+  # crash-loops. Prod bind-mounts ./data/postgres; a named volume keeps
+  # container uid ownership on Docker Desktop.
   db:
     volumes:
       - presio-db-data:/var/lib/postgresql/data

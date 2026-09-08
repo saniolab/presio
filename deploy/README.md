@@ -32,14 +32,12 @@ self-hosting is mostly configuration.
 
 ```text
 docker-compose.yml        # the whole stack — run `docker compose up` from the repo root
+                          # persistent data: ./data/{postgres,minio,storage,db-config}
 deploy/
   Dockerfile              # builds the presio app image
   .env.example            # every stack setting; copy to ./.env (repo root) and fill in
   volumes/                # vendored Supabase config (kong, db init, etc.), pinned
     UPSTREAM_PINNED_SHA.txt  # the supabase/supabase commit these files come from
-proxy/
-  docker-compose.yml      # the shared Traefik proxy (run once per host)
-  .env.example            # ACME_EMAIL for Let's Encrypt
 dbschema.sql              # mounted into presio-db-init
 ```
 
@@ -258,9 +256,14 @@ docker run --rm -v presio-data:/data -v "$PWD:/backup" alpine \
 ```
 
 Restore by stopping the container and untarring back into the volume. For the
-full self-hosted stack, the equivalent state is Postgres (`docker compose exec
-db pg_dump`) plus the MinIO volume — the `presio` container itself is
-stateless.
+full self-hosted stack, persistent state is `./data` next to
+`docker-compose.yml` (Postgres, MinIO, storage, db-config):
+
+```bash
+tar czf presio-data.tgz -C ./data .
+```
+
+The `presio` container itself is stateless.
 
 ### Reporting a problem
 
