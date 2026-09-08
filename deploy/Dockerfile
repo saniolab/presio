@@ -45,6 +45,13 @@ RUN apk add --no-cache --virtual .build-deps python3 make g++ \
   && apk del .build-deps
 COPY server/ .
 COPY --from=client-build /app/client/dist /app/client/dist
+COPY dbschema.sql /opt/presio/stack/dbschema.sql
+COPY deploy/volumes/api /opt/presio/stack/volumes/api
+COPY deploy/volumes/auth /opt/presio/stack/volumes/auth
+COPY deploy/volumes/db/*.sql /opt/presio/stack/volumes/db/
+COPY deploy/volumes/functions /opt/presio/stack/volumes/functions
+COPY deploy/volumes/pooler /opt/presio/stack/volumes/pooler
+COPY deploy/volumes/snippets /opt/presio/stack/volumes/snippets
 
 # Baked in so a running container can say which build it is (served on
 # /healthz). Defaults to "dev" for images built outside the release workflow.

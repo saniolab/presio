@@ -31,14 +31,15 @@ self-hosting is mostly configuration.
 ## Files
 
 ```text
-docker-compose.yml        # the whole stack — run `docker compose up` from the repo root
+docker-compose.yml        # the whole stack — copy this file + .env to the host
                           # persistent data: ./data/{postgres,minio,storage,db-config}
+                          # app image is pulled; Kong/Postgres init files come from it
 deploy/
-  Dockerfile              # builds the presio app image
-  .env.example            # every stack setting; copy to ./.env (repo root) and fill in
-  volumes/                # vendored Supabase config (kong, db init, etc.), pinned
-    UPSTREAM_PINNED_SHA.txt  # the supabase/supabase commit these files come from
-dbschema.sql              # mounted into presio-db-init
+  Dockerfile              # builds the presio app image (CI / GHCR)
+  .env.example            # every stack setting; copy to ./.env and fill in
+  volumes/                # vendored Supabase config, baked into the image
+    UPSTREAM_PINNED_SHA.txt
+dbschema.sql              # baked into the image; applied by presio-db-init
 ```
 
 ## Prerequisites
@@ -89,8 +90,8 @@ Every provider uses the same callback:
 Create a GitHub OAuth App (Settings → Developer settings → OAuth Apps) with
 that callback. Put its client id/secret into `GITHUB_CLIENT_ID` /
 `GITHUB_SECRET` in `.env`. Set `GITHUB_ENABLED=false` to disable it in GoTrue.
-The login button follows `VITE_AUTH_GITHUB` (defaults to `GITHUB_ENABLED`) and
-is baked into the client — rebuild `presio` after changing it.
+The login button follows `VITE_AUTH_GITHUB` (defaults to `GITHUB_ENABLED`).
+Recreate `presio` after changing it (`docker compose up -d`).
 
 ### Authentik
 
@@ -109,16 +110,16 @@ GoTrue has no dedicated Authentik provider. This stack registers it as a
 Do not use the Keycloak slot — it requests `/protocol/openid-connect/auth`,
 which Authentik does not serve (you get Authentik’s “Not Found” page).
 
-After changing these values, recreate `auth`, run `authentik-provider-init`,
-and rebuild `presio` (`VITE_AUTH_AUTHENTIK` is baked into the client).
+After changing these values, recreate `auth`, `authentik-provider-init`, and
+`presio` (`docker compose up -d`).
 
 Set `VITE_BRANDING=false` to hide marketing chrome (homepage pitch, “Enjoying
 Presio?” newsletter, install prompt, wordmark). The drop zone, join code, and
-recents stay. Rebuild `presio` after changing it.
+recents stay. Recreate `presio` after changing it.
 
 Set `VITE_END_DELETES=false` so **End Presentation** (and recents Close) only
 stops the live session: viewers are disconnected, the PDF and recents entry
-stay. Default is to delete. Rebuild `presio` after changing it — compose also
+stay. Default is to delete. Recreate `presio` after changing it — compose also
 passes the same value as `PRESIO_END_DELETES` so the API cannot destroy the
 deck either.
 
@@ -140,12 +141,18 @@ only do this once — every app (including Presio) attaches to the `web` network
 
 ## 5. Start Presio
 
-From the **repo root**:
+Copy `docker-compose.yml` and a filled-in `.env` onto the host (no git
+checkout). Persistent data is `./data` next to the compose file.
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 docker compose ps                # everything healthy / completed
 ```
+
+The Presio app image is pulled (`PRESIO_IMAGE`, default
+`ghcr.io/saniolab/presio-local:main`). Changing `.env` (Supabase URL, anon
+key, OAuth buttons, branding) only needs a container recreate, not an image
+rebuild. To pick up a new image: `docker compose pull && docker compose up -d`.
 
 First boot runs the Supabase migrations, creates the MinIO bucket, then
 `presio-db-init` applies `dbschema.sql`, then `presio` starts. As soon as DNS

@@ -7,8 +7,10 @@ client/dist
 **/.env
 .git
 data
-# The self-hosted stack (vendored Supabase volumes + secrets) and the shared
-# reverse proxy are not part of the app image build context.
-deploy
+# Runtime data dirs must not enter the image. Vendored Kong/Postgres init
+# files under deploy/volumes are copied in (see Dockerfile) so prod can run
+# from compose + .env without a git checkout.
+deploy/volumes/db/data
+deploy/volumes/storage
 proxy
 docker-compose.yml

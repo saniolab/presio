@@ -19,14 +19,40 @@
 #   ./data/storage     leftover file-backend dir used by storage-api / imgproxy
 #   ./data/db-config   pgsodium / Postgres custom config
 #
-# Everything is driven by a root .env (copy from deploy/.env.example). To run:
+# Production is this file + a .env (copy from deploy/.env.example). The Presio
+# image is pulled; Kong YAML / Postgres init SQL come out of that image via
+# stack-config. No git checkout. Client flags (Supabase URL, anon key, OAuth
+# buttons) are read from .env at container start — not baked into JS.
+#
 #   cp deploy/.env.example .env  # then fill it in
 #   docker compose up -d
 # See deploy/README.md.
 
 name: presio
 
+x-presio-image: &presio-image
+  image: ${PRESIO_IMAGE:-ghcr.io/saniolab/presio-local:main}
+  pull_policy: missing
+
 services:
+  # Unpack Kong YAML, Postgres init SQL, and dbschema.sql from the Presio
+  # image so the rest of the stack does not need a git checkout.
+  stack-config:
+    <<: *presio-image
+    container_name: presio-stack-config
+    restart: "no"
+    volumes:
+      - presio-stack:/stack
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        if [ ! -d /opt/presio/stack ]; then
+          echo "image is missing /opt/presio/stack — pull a build that includes runtime stack files, or set PRESIO_IMAGE" >&2
+          exit 1
+        fi
+        cp -a /opt/presio/stack/. /stack/
+        chmod -R a+rX /stack
+
   studio:
     container_name: supabase-studio
     image: supabase/studio:2026.06.03-sha-0bca601
@@ -76,9 +102,17 @@ services:
 
       SNIPPETS_MANAGEMENT_FOLDER: /app/snippets
       EDGE_FUNCTIONS_MANAGEMENT_FOLDER: /app/edge-functions
+    depends_on:
+      stack-config:
+        condition: service_completed_successfully
     volumes:
-      - ./deploy/volumes/snippets:/app/snippets:z
-      - ./deploy/volumes/functions:/app/edge-functions:ro,z
+      - presio-snippets:/app/snippets:z
+      - type: volume
+        source: presio-stack
+        target: /app/edge-functions
+        read_only: true
+        volume:
+          subpath: volumes/functions
 
   kong:
     container_name: supabase-kong
@@ -95,6 +129,8 @@ services:
       timeout: 5s
       retries: 5
     depends_on:
+      stack-config:
+        condition: service_completed_successfully
       studio:
         condition: service_healthy
     # Ingress via the host Traefik. Routes the Supabase domain to Kong :8000.
@@ -110,10 +146,18 @@ services:
       traefik.http.middlewares.supabase.headers.framedeny: "true"
       traefik.http.middlewares.supabase.headers.sslredirect: "true"
     volumes:
-      - ./deploy/volumes/api/kong.yml:/home/kong/temp.yml:ro,z
-      - ./deploy/volumes/api/kong-entrypoint.sh:/home/kong/kong-entrypoint.sh:ro,z
-      #- ./deploy/volumes/api/server.crt:/home/kong/server.crt:ro
-      #- ./deploy/volumes/api/server.key:/home/kong/server.key:ro
+      - type: volume
+        source: presio-stack
+        target: /home/kong/temp.yml
+        read_only: true
+        volume:
+          subpath: volumes/api/kong.yml
+      - type: volume
+        source: presio-stack
+        target: /home/kong/kong-entrypoint.sh
+        read_only: true
+        volume:
+          subpath: volumes/api/kong-entrypoint.sh
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /usr/local/kong/kong.yml
@@ -480,9 +524,15 @@ services:
     image: supabase/edge-runtime:v1.74.0
     restart: unless-stopped
     volumes:
-      - ./deploy/volumes/functions:/home/deno/functions:z
+      - type: volume
+        source: presio-stack
+        target: /home/deno/functions
+        volume:
+          subpath: volumes/functions
       - deno-cache:/root/.cache/deno
     depends_on:
+      stack-config:
+        condition: service_completed_successfully
       kong:
         condition: service_healthy
     healthcheck:
@@ -512,23 +562,53 @@ services:
     # To upgrade an existing Postgres 15 database in place, see utils/upgrade-pg17.sh.
     image: supabase/postgres:17.6.1.136
     restart: unless-stopped
+    depends_on:
+      stack-config:
+        condition: service_completed_successfully
     volumes:
-      - ./deploy/volumes/db/realtime.sql:/docker-entrypoint-initdb.d/migrations/99-realtime.sql:Z
-      # Must be superuser to create event trigger
-      - ./deploy/volumes/db/webhooks.sql:/docker-entrypoint-initdb.d/init-scripts/98-webhooks.sql:Z
-      # Must be superuser to alter reserved role
-      - ./deploy/volumes/db/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:Z
-      # Initialize the database settings with JWT_SECRET and JWT_EXP
-      - ./deploy/volumes/db/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:Z
-      # PGDATA directory is persisted between restarts
+      - type: volume
+        source: presio-stack
+        target: /docker-entrypoint-initdb.d/migrations/99-realtime.sql
+        read_only: true
+        volume:
+          subpath: volumes/db/realtime.sql
+      - type: volume
+        source: presio-stack
+        target: /docker-entrypoint-initdb.d/init-scripts/98-webhooks.sql
+        read_only: true
+        volume:
+          subpath: volumes/db/webhooks.sql
+      - type: volume
+        source: presio-stack
+        target: /docker-entrypoint-initdb.d/init-scripts/99-roles.sql
+        read_only: true
+        volume:
+          subpath: volumes/db/roles.sql
+      - type: volume
+        source: presio-stack
+        target: /docker-entrypoint-initdb.d/init-scripts/99-jwt.sql
+        read_only: true
+        volume:
+          subpath: volumes/db/jwt.sql
       - ./data/postgres:/var/lib/postgresql/data:Z
-      # Changes required for internal supabase data such as _analytics
-      - ./deploy/volumes/db/_supabase.sql:/docker-entrypoint-initdb.d/migrations/97-_supabase.sql:Z
-      # Changes required for Analytics support
-      - ./deploy/volumes/db/logs.sql:/docker-entrypoint-initdb.d/migrations/99-logs.sql:Z
-      # Changes required for Pooler support
-      - ./deploy/volumes/db/pooler.sql:/docker-entrypoint-initdb.d/migrations/99-pooler.sql:Z
-      # Persist pgsodium decryption key between restarts
+      - type: volume
+        source: presio-stack
+        target: /docker-entrypoint-initdb.d/migrations/97-_supabase.sql
+        read_only: true
+        volume:
+          subpath: volumes/db/_supabase.sql
+      - type: volume
+        source: presio-stack
+        target: /docker-entrypoint-initdb.d/migrations/99-logs.sql
+        read_only: true
+        volume:
+          subpath: volumes/db/logs.sql
+      - type: volume
+        source: presio-stack
+        target: /docker-entrypoint-initdb.d/migrations/99-pooler.sql
+        read_only: true
+        volume:
+          subpath: volumes/db/pooler.sql
       - ./data/db-config:/etc/postgresql-custom
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "postgres", "-h", "localhost"]
@@ -566,7 +646,12 @@ services:
     # - 127.0.0.1:${POSTGRES_PORT}:5432
     # - 127.0.0.1:${POOLER_PROXY_PORT_TRANSACTION}:6543
     volumes:
-      - ./deploy/volumes/pooler/pooler.exs:/etc/pooler/pooler.exs:ro,z
+      - type: volume
+        source: presio-stack
+        target: /etc/pooler/pooler.exs
+        read_only: true
+        volume:
+          subpath: volumes/pooler/pooler.exs
     healthcheck:
       test:
         [
@@ -583,6 +668,8 @@ services:
       retries: 10
       start_period: 30s
     depends_on:
+      stack-config:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
     environment:
@@ -653,6 +740,8 @@ services:
     image: postgres:17-alpine
     restart: "no"
     depends_on:
+      stack-config:
+        condition: service_completed_successfully
       db:
         condition: service_healthy
       auth:
@@ -662,7 +751,12 @@ services:
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - ./dbschema.sql:/schema.sql:ro
+      - type: volume
+        source: presio-stack
+        target: /schema.sql
+        read_only: true
+        volume:
+          subpath: dbschema.sql
     entrypoint:
       - /bin/sh
       - -ec
@@ -678,6 +772,8 @@ services:
     image: python:3.12-alpine
     restart: "no"
     depends_on:
+      stack-config:
+        condition: service_completed_successfully
       auth:
         condition: service_healthy
     environment:
@@ -687,30 +783,20 @@ services:
       AUTHENTIK_URL: ${AUTHENTIK_URL:-}
       SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
     volumes:
-      - ./deploy/volumes/auth/register-authentik.py:/register-authentik.py:ro
+      - type: volume
+        source: presio-stack
+        target: /register-authentik.py
+        read_only: true
+        volume:
+          subpath: volumes/auth/register-authentik.py
     entrypoint: ["python3", "/register-authentik.py"]
 
   # The Presio app itself: Express + Socket.IO server that also serves the built
   # React client. Talks to Supabase through the public URL (which doubles as the
   # base for the public storage URLs handed back to viewers).
   presio:
+    <<: *presio-image
     container_name: presio-app
-    build:
-      context: .
-      dockerfile: deploy/Dockerfile
-      args:
-        VITE_SUPABASE_URL: ${SUPABASE_PUBLIC_URL}
-        VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY: ${ANON_KEY}
-        VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
-        # Prefer VITE_AUTH_* so the login buttons can be hidden independently
-        # of GoTrue; fall back to GITHUB_ENABLED / AUTHENTIK_ENABLED.
-        VITE_AUTH_GITHUB: ${VITE_AUTH_GITHUB:-${GITHUB_ENABLED:-true}}
-        VITE_AUTH_AUTHENTIK: ${VITE_AUTH_AUTHENTIK:-${AUTHENTIK_ENABLED:-false}}
-        # Hide marketing chrome (homepage pitch, newsletter, wordmark). Default on.
-        VITE_BRANDING: ${VITE_BRANDING:-true}
-        # End Presentation deletes the deck by default. Set false to only stop
-        # the live session (viewers disconnect; PDF and recents stay).
-        VITE_END_DELETES: ${VITE_END_DELETES:-true}
     restart: unless-stopped
     networks:
       default:
@@ -722,6 +808,7 @@ services:
         condition: service_completed_successfully
     environment:
       SUPABASE_URL: ${SUPABASE_PUBLIC_URL}
+      SUPABASE_ANON_KEY: ${ANON_KEY}
       SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
       PORT: 3001
       ALLOWED_ORIGIN: ${ALLOWED_ORIGIN:-}
@@ -733,6 +820,12 @@ services:
       PRESIO_SERVICE_API_KEY: ${PRESIO_SERVICE_API_KEY}
       PRESIO_HANDOFF_JWT_SECRET: ${PRESIO_HANDOFF_JWT_SECRET}
       PRESIO_HANDOFF_JWT_ISSUER: ${PRESIO_HANDOFF_JWT_ISSUER}
+      GITHUB_ENABLED: ${GITHUB_ENABLED:-true}
+      AUTHENTIK_ENABLED: ${AUTHENTIK_ENABLED:-false}
+      VITE_AUTH_GITHUB: ${VITE_AUTH_GITHUB:-}
+      VITE_AUTH_AUTHENTIK: ${VITE_AUTH_AUTHENTIK:-}
+      VITE_BRANDING: ${VITE_BRANDING:-true}
+      VITE_SENTRY_DSN: ${VITE_SENTRY_DSN:-}
       ANALYTICS_URL: ${ANALYTICS_URL:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
@@ -812,3 +905,5 @@ networks:
 
 volumes:
   deno-cache:
+  presio-stack:
+  presio-snippets:
