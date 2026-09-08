@@ -176,6 +176,25 @@ describe("DELETE /api/sessions/:id (controller-token auth)", () => {
     expect(fake.rows).toHaveLength(1);
     expect(fake.rows[0].status).toBe("expired");
   });
+
+  it("disconnects without expiring or removing the PDF when PRESIO_END_DELETES is false", async () => {
+    const prev = process.env.PRESIO_END_DELETES;
+    process.env.PRESIO_END_DELETES = "false";
+    try {
+      const fake = new FakeSupabase([baseRow({})]);
+      fake.uploaded.set("ABC123.pdf", Buffer.from("%PDF"));
+      const res = await request(appWith(fake))
+        .delete("/api/sessions/ABC123")
+        .set("x-controller-token", "secret-token");
+      expect(res.status).toBe(200);
+      expect(fake.rows).toHaveLength(1);
+      expect(fake.rows[0].status).not.toBe("expired");
+      expect(fake.uploaded.has("ABC123.pdf")).toBe(true);
+    } finally {
+      if (prev === undefined) delete process.env.PRESIO_END_DELETES;
+      else process.env.PRESIO_END_DELETES = prev;
+    }
+  });
 });
 
 describe("POST /api/sessions/:id/claim (auth)", () => {

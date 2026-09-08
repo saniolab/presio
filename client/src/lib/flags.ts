@@ -13,3 +13,10 @@ export function viteFlag(value: unknown, defaultOn: boolean): boolean {
 export const brandingEnabled = viteFlag(import.meta.env.VITE_BRANDING, true);
 
 export const appTitle = brandingEnabled ? "Presio" : "Presentations";
+
+// Whether "End Presentation" / recents Close deletes the deck (IndexedDB for
+// local, DELETE /api/sessions/:id for synced). Default on so public Presio is
+// unchanged. Set VITE_END_DELETES=false to only stop the live session — viewers
+// disconnect, the PDF and recents entry stay. Rebuild after changing. Pair with
+// PRESIO_END_DELETES=false on the server so the API cannot destroy the deck either.
+export const endDeletesPresentation = viteFlag(import.meta.env.VITE_END_DELETES, true);

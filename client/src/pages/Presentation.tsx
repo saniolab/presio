@@ -20,7 +20,7 @@ import { socket } from "@/lib/socket";
 import { startClockSync } from "@/lib/clock";
 import { supabase } from "@/lib/supabaseClient";
 import { authEnabled } from "@/lib/authMode";
-import { appTitle } from "@/lib/flags";
+import { appTitle, endDeletesPresentation } from "@/lib/flags";
 import { getSessionAuth, endSession } from "@/lib/utils";
 import { idbGet, idbPut, idbDelete } from "@/lib/localStore";
 import {
@@ -836,7 +836,9 @@ export default function Presentation() {
 
   const endPresentation = useCallback(async () => {
     if (local) {
-      await idbDelete(id!).catch(() => { /* ignore */ });
+      if (endDeletesPresentation) {
+        await idbDelete(id!).catch(() => { /* ignore */ });
+      }
       channelRef.current?.postMessage({ type: "session_ended" });
     } else {
       await endSession(id!);

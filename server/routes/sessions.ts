@@ -19,6 +19,7 @@ import { baseUrl } from "../lib/baseUrl.js";
 import { fetchRemotePdfMeta } from "../lib/remotePdf.js";
 import { createPresentHandoff, handoffTokenFrom, updatePresentDeck } from "../lib/presentHandoff.js";
 import { generatePassphrase, insertSession, ownedExpiry } from "../lib/sessionRows.js";
+import { endDeletesPresentation } from "../lib/flags.js";
 
 export interface RouteDeps {
   supabase: SupabaseClient;
@@ -934,11 +935,13 @@ export function registerSessionRoutes(app: express.Express, { supabase, io, sock
       return;
     }
 
-    if (data.pdf_path) {
-      await supabase.storage.from("presentations").remove([data.pdf_path]);
+    if (endDeletesPresentation()) {
+      if (data.pdf_path) {
+        await supabase.storage.from("presentations").remove([data.pdf_path]);
+      }
+      // Mark the session expired rather than deleting it — the row is retained.
+      await supabase.from("sessions").update({ status: "expired" }).eq("id", data.id);
     }
-    // Mark the session expired rather than deleting it — the row is retained.
-    await supabase.from("sessions").update({ status: "expired" }).eq("id", data.id);
 
     // Disconnect all sockets in this session's room
     const sockets = await io.in(data.id).fetchSockets();

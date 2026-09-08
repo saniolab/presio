@@ -78,6 +78,7 @@ services:
       # address it can see belongs to the container — so share links fall back
       # to asking the presenter unless this is set. See the header above.
       PRESIO_PUBLIC_HOST: ${PRESIO_PUBLIC_HOST:-}
+      PRESIO_END_DELETES: ${VITE_END_DELETES:-true}
     volumes:
       - presio-local-data:/data
 

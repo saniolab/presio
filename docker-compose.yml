@@ -725,6 +725,9 @@ services:
         VITE_AUTH_AUTHENTIK: ${VITE_AUTH_AUTHENTIK:-${AUTHENTIK_ENABLED:-false}}
         # Hide marketing chrome (homepage pitch, newsletter, wordmark). Default on.
         VITE_BRANDING: ${VITE_BRANDING:-true}
+        # End Presentation deletes the deck by default. Set false to only stop
+        # the live session (viewers disconnect; PDF and recents stay).
+        VITE_END_DELETES: ${VITE_END_DELETES:-true}
     restart: unless-stopped
     networks:
       default:
@@ -750,6 +753,9 @@ services:
       ANALYTICS_URL: ${ANALYTICS_URL:-}
       SENTRY_DSN: ${SENTRY_DSN:-}
       SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0.1}
+      # Runtime twin of VITE_END_DELETES so DELETE /api/sessions/:id cannot
+      # destroy a deck even if an older client still posts End Presentation.
+      PRESIO_END_DELETES: ${VITE_END_DELETES:-true}
     # Ingress via the host Traefik. Routes the app domain to Express/Socket.IO
     # on port 3001 (websockets pass through).
     labels:

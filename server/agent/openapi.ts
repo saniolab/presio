@@ -300,7 +300,7 @@ export function buildOpenApi(base: string) {
         delete: {
           summary: "End a presentation",
           description:
-            "Disconnects all viewers, removes the PDF, and marks the session expired — not recoverable. Authorized by the presentation's controller token.",
+            "Disconnects all viewers. By default also removes the PDF and marks the session expired — not recoverable. With PRESIO_END_DELETES=false only viewers are disconnected. Authorized by the presentation's controller token.",
           operationId: "endSession",
           parameters: [
             { name: "id", in: "path", required: true, schema: { type: "string" } },

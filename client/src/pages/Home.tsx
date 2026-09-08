@@ -7,7 +7,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { AccountControl } from "@/components/AccountControl";
 import { PresioLogo } from "@/components/PresioLogo";
 import { MobileNotice } from "@/components/MobileNotice";
-import { brandingEnabled } from "@/lib/flags";
+import { brandingEnabled, endDeletesPresentation } from "@/lib/flags";
 import { CodeBlock } from "@/components/CodeBlock";
 import { ConfirmReplaceDialog } from "@/components/controller/ConfirmReplaceDialog";
 import { ConfirmReuploadDialog } from "@/components/controller/ConfirmReuploadDialog";
@@ -459,19 +459,19 @@ export default function Home() {
     [navigate]
   );
 
-  // Close (end) a presentation. A local deck's PDF only ever lived in this
-  // browser, so ending it means deleting that IndexedDB copy — the same
-  // teardown the controller runs in Presentation.tsx. A synced deck is ended
-  // for everyone on the server: viewers are disconnected, the stored PDF is
-  // dropped and the row is marked expired. Neither is recoverable, hence the
-  // confirm dialog.
+  // Close (end) a presentation. By default this matches the controller's
+  // teardown in Presentation.tsx: a local deck's IndexedDB copy is deleted, a
+  // synced deck is expired on the server. With VITE_END_DELETES=false only
+  // the live session stops — viewers disconnect, the PDF and recents stay.
   const confirmClose = useCallback(async () => {
     if (!closeTarget || closing) return;
     setClosing(true);
     setError("");
     try {
       if (closeTarget.kind === "local") {
-        await idbDelete(closeTarget.id);
+        if (endDeletesPresentation) {
+          await idbDelete(closeTarget.id);
+        }
         // A local session is presented from two windows in the same browser;
         // the viewer has no server to hear from, so tell it directly on the
         // channel Presentation listens on. Same message endPresentation sends.
@@ -480,7 +480,7 @@ export default function Home() {
           channel.postMessage({ type: "session_ended" });
           channel.close();
         } catch {
-          // No BroadcastChannel (or it's blocked): the deck is gone either way.
+          // No BroadcastChannel (or it's blocked): the viewer stays open.
         }
       } else {
         const res = await endSession(closeTarget.id, closeTarget.controllerToken);
@@ -489,9 +489,11 @@ export default function Home() {
           throw new Error(body.error || "Failed to close the presentation");
         }
       }
-      // The stored controller credential is dead weight either way.
-      lsRemove(sessionKey(closeTarget.id));
-      setRecents((rs) => rs.filter((r) => r.id !== closeTarget.id));
+      if (endDeletesPresentation) {
+        // The stored controller credential is dead weight once the deck is gone.
+        lsRemove(sessionKey(closeTarget.id));
+        setRecents((rs) => rs.filter((r) => r.id !== closeTarget.id));
+      }
       setCloseTarget(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to close the presentation");
@@ -1151,9 +1153,13 @@ export default function Home() {
                           size="sm"
                           variant="ghost"
                           title={
-                            r.kind === "local"
-                              ? "Delete this presentation from this browser — cannot be undone"
-                              : "End this presentation for everyone — cannot be undone"
+                            endDeletesPresentation
+                              ? r.kind === "local"
+                                ? "Delete this presentation from this browser — cannot be undone"
+                                : "End this presentation for everyone — cannot be undone"
+                              : r.kind === "local"
+                                ? "Stop this presentation — the PDF stays in this browser"
+                                : "Stop this presentation for everyone — the presentation is kept"
                           }
                           disabled={closing}
                           onClick={() => setCloseTarget(r)}

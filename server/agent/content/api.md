@@ -69,7 +69,7 @@ curl -s -F file=@deck.pdf BASE/api/check
 
 - `GET /api/sessions/mine` — header `Authorization: Bearer <login JWT>` — the signed-in user's live synced presentations, newest first.
   **200:** `[{ id, filename, total_slides, created_at, expires_at, controllerToken }]`. `controllerToken` is included because the owner is entitled to it — it lets any device the user signs in on open the presentation as its controller. 401 without a valid token; not available in local mode.
-- `DELETE /api/sessions/:id` — header `x-controller-token` — end a presentation: viewers are disconnected, the PDF is removed, and the row is marked expired (not recoverable).
+- `DELETE /api/sessions/:id` — header `x-controller-token` — end a presentation: viewers are disconnected. By default the PDF is removed and the row is marked expired (not recoverable). With `PRESIO_END_DELETES=false` only viewers are disconnected; the PDF and session stay.
 
 ## URL-backed decks (republish detection)
 

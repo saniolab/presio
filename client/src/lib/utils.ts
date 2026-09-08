@@ -19,10 +19,12 @@ export function setSessionAuth(id: string, auth: SessionAuth) {
   lsSet(sessionKey(id), auth);
 }
 
-// Ends (deletes) a synced presentation. The server requires the controller
-// token, so send the one stored for this session — or `fallbackToken` when this
-// device never held the credential (an account-synced deck opened from
-// /api/sessions/mine carries its token with the row).
+// Ends a synced presentation. By default this deletes it (the server marks
+// the row expired and drops the PDF). With PRESIO_END_DELETES=false it only
+// disconnects viewers. The server requires the controller token, so send the
+// one stored for this session — or `fallbackToken` when this device never
+// held the credential (an account-synced deck opened from /api/sessions/mine
+// carries its token with the row).
 export function endSession(id: string, fallbackToken?: string): Promise<Response> {
   const { controllerToken } = getSessionAuth(id);
   const token = controllerToken ?? fallbackToken;

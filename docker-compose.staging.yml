@@ -23,6 +23,7 @@ services:
         VITE_AUTH_GITHUB: ${VITE_AUTH_GITHUB:-${GITHUB_ENABLED:-true}}
         VITE_AUTH_AUTHENTIK: ${VITE_AUTH_AUTHENTIK:-${AUTHENTIK_ENABLED:-false}}
         VITE_BRANDING: ${VITE_BRANDING:-true}
+        VITE_END_DELETES: ${VITE_END_DELETES:-true}
         # The deploying commit, so /healthz identifies exactly what is running
         # here. deploy-staging.yml sets this and then waits for that value to
         # appear before calling the deploy good.
@@ -39,6 +40,7 @@ services:
       # instead of deriving it from the client-controlled Host header. Staging
       # sits behind Traefik on a known hostname, so the value is knowable here.
       PUBLIC_BASE_URL: https://${STAGING_HOST:-staging.presio.xyz}
+      PRESIO_END_DELETES: ${VITE_END_DELETES:-true}
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=web"

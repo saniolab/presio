@@ -118,6 +118,12 @@ Set `VITE_BRANDING=false` to hide marketing chrome (homepage pitch, “Enjoying
 Presio?” newsletter, install prompt, wordmark). The drop zone, join code, and
 recents stay. Rebuild `presio` after changing it.
 
+Set `VITE_END_DELETES=false` so **End Presentation** (and recents Close) only
+stops the live session: viewers are disconnected, the PDF and recents entry
+stay. Default is to delete. Rebuild `presio` after changing it — compose also
+passes the same value as `PRESIO_END_DELETES` so the API cannot destroy the
+deck either.
+
 Email/password is enabled too (`ENABLE_EMAIL_SIGNUP=true`). Set
 `ENABLE_EMAIL_AUTOCONFIRM=false` and fill `SMTP_*` for real verification
 emails.
