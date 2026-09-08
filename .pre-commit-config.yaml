@@ -8,6 +8,8 @@ repos:
       - id: check-added-large-files
         args: ["--maxkb=25600"]
       - id: check-yaml
+        # Compose merge tags (!override / !reset) are not core YAML.
+        exclude: '(^|/)docker-compose[^/]*\.ya?ml$'
       - id: check-json
       - id: detect-private-key
       - id: mixed-line-ending
