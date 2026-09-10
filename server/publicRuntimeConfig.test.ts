@@ -68,4 +68,14 @@ describe("publicRuntimeConfig", () => {
     expect(script).not.toContain("service-api-key");
     expect(script).not.toContain("handoff-secret");
   });
+
+  it("omits empty supabase URL from /config.js so Vite fallbacks still apply", () => {
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_ANON_KEY;
+    delete process.env.ANON_KEY;
+
+    const script = publicRuntimeConfigScript();
+    expect(script).not.toContain('"supabaseUrl"');
+    expect(script).not.toContain('"supabaseAnonKey"');
+  });
 });

@@ -32,6 +32,9 @@ export function publicRuntimeConfig(): PublicRuntimeConfig {
 }
 
 export function publicRuntimeConfigScript(): string {
-  const json = JSON.stringify(publicRuntimeConfig()).replace(/</g, "\\u003c");
+  const published = Object.fromEntries(
+    Object.entries(publicRuntimeConfig()).filter(([, value]) => value !== ""),
+  );
+  const json = JSON.stringify(published).replace(/</g, "\\u003c");
   return `window.__PRESIO_CONFIG__=${json};`;
 }

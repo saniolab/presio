@@ -52,7 +52,7 @@ function fromWindow(): Partial<RuntimeConfig> {
 }
 
 function pickString(runtime: string | undefined, fallback: string): string {
-  if (runtime === undefined) {
+  if (runtime === undefined || runtime.trim() === "") {
     return fallback;
   }
   return runtime;
@@ -65,17 +65,21 @@ function pickBool(runtime: boolean | undefined, fallback: boolean): boolean {
   return runtime;
 }
 
-const vite = fromVite();
-const runtime = fromWindow();
+export function resolveRuntimeConfig(
+  vite: RuntimeConfig,
+  runtime: Partial<RuntimeConfig>,
+): RuntimeConfig {
+  return {
+    supabaseUrl: pickString(runtime.supabaseUrl, vite.supabaseUrl),
+    supabaseAnonKey: pickString(runtime.supabaseAnonKey, vite.supabaseAnonKey),
+    sentryDsn: pickString(runtime.sentryDsn, vite.sentryDsn),
+    githubOAuth: pickBool(runtime.githubOAuth, vite.githubOAuth),
+    authentikOAuth: pickBool(runtime.authentikOAuth, vite.authentikOAuth),
+    emailAuth: pickBool(runtime.emailAuth, vite.emailAuth),
+    publicSignup: pickBool(runtime.publicSignup, vite.publicSignup),
+    branding: pickBool(runtime.branding, vite.branding),
+    endDeletes: pickBool(runtime.endDeletes, vite.endDeletes),
+  };
+}
 
-export const runtimeConfig: RuntimeConfig = {
-  supabaseUrl: pickString(runtime.supabaseUrl, vite.supabaseUrl),
-  supabaseAnonKey: pickString(runtime.supabaseAnonKey, vite.supabaseAnonKey),
-  sentryDsn: pickString(runtime.sentryDsn, vite.sentryDsn),
-  githubOAuth: pickBool(runtime.githubOAuth, vite.githubOAuth),
-  authentikOAuth: pickBool(runtime.authentikOAuth, vite.authentikOAuth),
-  emailAuth: pickBool(runtime.emailAuth, vite.emailAuth),
-  publicSignup: pickBool(runtime.publicSignup, vite.publicSignup),
-  branding: pickBool(runtime.branding, vite.branding),
-  endDeletes: pickBool(runtime.endDeletes, vite.endDeletes),
-};
+export const runtimeConfig: RuntimeConfig = resolveRuntimeConfig(fromVite(), fromWindow());
