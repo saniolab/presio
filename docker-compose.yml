@@ -17,7 +17,6 @@
 #   ./data/postgres    Postgres PGDATA
 #   ./data/minio       MinIO object store (synced PDFs)
 #   ./data/storage     leftover file-backend dir used by storage-api / imgproxy
-#   ./data/db-config   pgsodium / Postgres custom config
 #   ./data/stack       Kong config, Postgres init SQL, dbschema.sql — unpacked
 #                      from the app image by stack-config on every `up`
 #
@@ -562,7 +561,10 @@ services:
       - ./data/stack/volumes/db/_supabase.sql:/docker-entrypoint-initdb.d/migrations/97-_supabase.sql:ro
       - ./data/stack/volumes/db/logs.sql:/docker-entrypoint-initdb.d/migrations/99-logs.sql:ro
       - ./data/stack/volumes/db/pooler.sql:/docker-entrypoint-initdb.d/migrations/99-pooler.sql:ro
-      - ./data/db-config:/etc/postgresql-custom
+      # Named volume, not a ./data bind: the image ships config files here that
+      # postgresql.conf `include`s, and Docker seeds an empty named volume from
+      # the image. A bind mount would hide them and Postgres would not start.
+      - db-config:/etc/postgresql-custom
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "postgres", "-h", "localhost"]
       interval: 5s
@@ -859,5 +861,6 @@ networks:
     name: traefik-servicenet
 
 volumes:
+  db-config:
   deno-cache:
   presio-snippets:
