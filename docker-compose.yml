@@ -650,10 +650,25 @@ services:
 
   # Object store backing Supabase Storage (synced PDFs). Merged from the
   # upstream docker-compose.s3.yml overlay.
+  # Chainguard MinIO runs as uid 65532; Docker creates ./data/minio as root
+  # on first boot, which makes the server die with "file access denied".
+  minio-perms:
+    container_name: presio-minio-perms
+    image: busybox:1.37
+    user: "0:0"
+    restart: "no"
+    volumes:
+      - ./data/minio:/data
+    command: ["chown", "-R", "65532:65532", "/data"]
+
   minio:
     container_name: presio-minio
     image: cgr.dev/chainguard/minio
+    user: "65532:65532"
     restart: unless-stopped
+    depends_on:
+      minio-perms:
+        condition: service_completed_successfully
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
