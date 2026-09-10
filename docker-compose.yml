@@ -6,7 +6,7 @@
 #      (merged from upstream docker-compose.s3.yml) — synced PDFs live in MinIO.
 #   2. A `presio` service builds and serves this repo (Express + Socket.IO + the
 #      built React client) and talks to Supabase via the internal Kong gateway.
-#   3. The repo's dbschema.sql is mounted as a Postgres init migration, so the
+#   3. The repo's dbschema.sql is applied as a Postgres init migration, so the
 #      `sessions` table + `presentations` bucket are created on first boot.
 #
 # Ingress: labelled services join the existing host Traefik on
@@ -18,14 +18,17 @@
 #   ./data/minio       MinIO object store (synced PDFs)
 #   ./data/storage     leftover file-backend dir used by storage-api / imgproxy
 #   ./data/db-config   pgsodium / Postgres custom config
+#   ./data/stack       Kong config, Postgres init SQL, dbschema.sql — unpacked
+#                      from the app image by stack-config on every `up`
 #
-# Production is this file + a .env (copy from deploy/.env.example). The Presio
-# image is pulled; Kong YAML / Postgres init SQL come out of that image via
-# stack-config. No git checkout. Client flags (Supabase URL, anon key, OAuth
-# buttons) are read from .env at container start — not baked into JS.
+# Deployment is this file plus a .env; nothing else is copied to the host. Every
+# config file the stack needs ships inside the app image (deploy/Dockerfile puts
+# them in /opt/presio/stack) and stack-config unpacks them before anything else
+# starts. Client flags are read from .env at container start, not baked into JS.
 #
 #   cp deploy/.env.example .env  # then fill it in
 #   docker compose up -d
+#
 # See deploy/README.md.
 
 name: presio
@@ -35,23 +38,27 @@ x-presio-image: &presio-image
   pull_policy: missing
 
 services:
-  # Unpack Kong YAML, Postgres init SQL, and dbschema.sql from the Presio
-  # image so the rest of the stack does not need a git checkout.
+  # Unpack Kong YAML, Postgres init SQL and dbschema.sql out of the app image
+  # into ./data/stack, so the host needs no checkout and nothing to copy. Runs
+  # before every consumer and re-copies on each `up`, so pulling a new image
+  # refreshes the files (and repairs anything a failed boot left behind).
   stack-config:
     <<: *presio-image
     container_name: presio-stack-config
     restart: "no"
     volumes:
-      - presio-stack:/stack
+      - ./data/stack:/out
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
         if [ ! -d /opt/presio/stack ]; then
-          echo "image is missing /opt/presio/stack — pull a build that includes runtime stack files, or set PRESIO_IMAGE" >&2
+          echo "image ${PRESIO_IMAGE:-ghcr.io/saniolab/presio-local:main} has no /opt/presio/stack" >&2
+          echo "pull a newer app image (docker compose pull) or point PRESIO_IMAGE at one" >&2
           exit 1
         fi
-        cp -a /opt/presio/stack/. /stack/
-        chmod -R a+rX /stack
+        rm -rf /out/dbschema.sql /out/volumes
+        cp -a /opt/presio/stack/. /out/
+        chmod -R a+rX /out
 
   studio:
     container_name: supabase-studio
@@ -107,12 +114,7 @@ services:
         condition: service_completed_successfully
     volumes:
       - presio-snippets:/app/snippets:z
-      - type: volume
-        source: presio-stack
-        target: /app/edge-functions
-        read_only: true
-        volume:
-          subpath: volumes/functions
+      - ./data/stack/volumes/functions:/app/edge-functions:ro
 
   kong:
     container_name: supabase-kong
@@ -146,18 +148,8 @@ services:
       traefik.http.middlewares.supabase.headers.framedeny: "true"
       traefik.http.middlewares.supabase.headers.sslredirect: "true"
     volumes:
-      - type: volume
-        source: presio-stack
-        target: /home/kong/temp.yml
-        read_only: true
-        volume:
-          subpath: volumes/api/kong.yml
-      - type: volume
-        source: presio-stack
-        target: /home/kong/kong-entrypoint.sh
-        read_only: true
-        volume:
-          subpath: volumes/api/kong-entrypoint.sh
+      - ./data/stack/volumes/api/kong.yml:/home/kong/temp.yml:ro
+      - ./data/stack/volumes/api/kong-entrypoint.sh:/home/kong/kong-entrypoint.sh:ro
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /usr/local/kong/kong.yml
@@ -524,11 +516,7 @@ services:
     image: supabase/edge-runtime:v1.74.0
     restart: unless-stopped
     volumes:
-      - type: volume
-        source: presio-stack
-        target: /home/deno/functions
-        volume:
-          subpath: volumes/functions
+      - ./data/stack/volumes/functions:/home/deno/functions
       - deno-cache:/root/.cache/deno
     depends_on:
       stack-config:
@@ -566,49 +554,14 @@ services:
       stack-config:
         condition: service_completed_successfully
     volumes:
-      - type: volume
-        source: presio-stack
-        target: /docker-entrypoint-initdb.d/migrations/99-realtime.sql
-        read_only: true
-        volume:
-          subpath: volumes/db/realtime.sql
-      - type: volume
-        source: presio-stack
-        target: /docker-entrypoint-initdb.d/init-scripts/98-webhooks.sql
-        read_only: true
-        volume:
-          subpath: volumes/db/webhooks.sql
-      - type: volume
-        source: presio-stack
-        target: /docker-entrypoint-initdb.d/init-scripts/99-roles.sql
-        read_only: true
-        volume:
-          subpath: volumes/db/roles.sql
-      - type: volume
-        source: presio-stack
-        target: /docker-entrypoint-initdb.d/init-scripts/99-jwt.sql
-        read_only: true
-        volume:
-          subpath: volumes/db/jwt.sql
+      - ./data/stack/volumes/db/realtime.sql:/docker-entrypoint-initdb.d/migrations/99-realtime.sql:ro
+      - ./data/stack/volumes/db/webhooks.sql:/docker-entrypoint-initdb.d/init-scripts/98-webhooks.sql:ro
+      - ./data/stack/volumes/db/roles.sql:/docker-entrypoint-initdb.d/init-scripts/99-roles.sql:ro
+      - ./data/stack/volumes/db/jwt.sql:/docker-entrypoint-initdb.d/init-scripts/99-jwt.sql:ro
       - ./data/postgres:/var/lib/postgresql/data:Z
-      - type: volume
-        source: presio-stack
-        target: /docker-entrypoint-initdb.d/migrations/97-_supabase.sql
-        read_only: true
-        volume:
-          subpath: volumes/db/_supabase.sql
-      - type: volume
-        source: presio-stack
-        target: /docker-entrypoint-initdb.d/migrations/99-logs.sql
-        read_only: true
-        volume:
-          subpath: volumes/db/logs.sql
-      - type: volume
-        source: presio-stack
-        target: /docker-entrypoint-initdb.d/migrations/99-pooler.sql
-        read_only: true
-        volume:
-          subpath: volumes/db/pooler.sql
+      - ./data/stack/volumes/db/_supabase.sql:/docker-entrypoint-initdb.d/migrations/97-_supabase.sql:ro
+      - ./data/stack/volumes/db/logs.sql:/docker-entrypoint-initdb.d/migrations/99-logs.sql:ro
+      - ./data/stack/volumes/db/pooler.sql:/docker-entrypoint-initdb.d/migrations/99-pooler.sql:ro
       - ./data/db-config:/etc/postgresql-custom
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "postgres", "-h", "localhost"]
@@ -646,12 +599,7 @@ services:
     # - 127.0.0.1:${POSTGRES_PORT}:5432
     # - 127.0.0.1:${POOLER_PROXY_PORT_TRANSACTION}:6543
     volumes:
-      - type: volume
-        source: presio-stack
-        target: /etc/pooler/pooler.exs
-        read_only: true
-        volume:
-          subpath: volumes/pooler/pooler.exs
+      - ./data/stack/volumes/pooler/pooler.exs:/etc/pooler/pooler.exs:ro
     healthcheck:
       test:
         [
@@ -751,12 +699,7 @@ services:
     environment:
       PGPASSWORD: ${POSTGRES_PASSWORD}
     volumes:
-      - type: volume
-        source: presio-stack
-        target: /schema.sql
-        read_only: true
-        volume:
-          subpath: dbschema.sql
+      - ./data/stack/dbschema.sql:/schema.sql:ro
     entrypoint:
       - /bin/sh
       - -ec
@@ -783,12 +726,7 @@ services:
       AUTHENTIK_URL: ${AUTHENTIK_URL:-}
       SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
     volumes:
-      - type: volume
-        source: presio-stack
-        target: /register-authentik.py
-        read_only: true
-        volume:
-          subpath: volumes/auth/register-authentik.py
+      - ./data/stack/volumes/auth/register-authentik.py:/register-authentik.py:ro
     entrypoint: ["python3", "/register-authentik.py"]
 
   # The Presio app itself: Express + Socket.IO server that also serves the built
@@ -907,5 +845,4 @@ networks:
 
 volumes:
   deno-cache:
-  presio-stack:
   presio-snippets:

@@ -31,16 +31,21 @@ self-hosting is mostly configuration.
 ## Files
 
 ```text
-docker-compose.yml        # the whole stack — copy this file + .env to the host
+docker-compose.yml        # the whole stack — this file + .env is the deployment
                           # persistent data: ./data/{postgres,minio,storage,db-config}
-                          # app image is pulled; Kong/Postgres init files come from it
+                          # app image is pulled; Kong/Postgres/schema files come
+                          # out of it into ./data/stack via the stack-config job
 deploy/
-  Dockerfile              # builds the presio app image (CI / GHCR)
+  Dockerfile              # builds the presio app image (CI / GHCR), and bakes the
+                          # files below into /opt/presio/stack
   .env.example            # every stack setting; copy to ./.env and fill in
-  volumes/                # vendored Supabase config, baked into the image
+  volumes/                # vendored Supabase config, shipped inside the image
     UPSTREAM_PINNED_SHA.txt
-dbschema.sql              # baked into the image; applied by presio-db-init
+dbschema.sql              # shipped inside the image; applied by presio-db-init
 ```
+
+Editing `deploy/volumes/*` or `dbschema.sql` only reaches a deployment through a
+new app image: publish it, then `docker compose pull && docker compose up -d`.
 
 ## Prerequisites
 
@@ -141,8 +146,11 @@ only do this once — every app (including Presio) attaches to the `web` network
 
 ## 5. Start Presio
 
-Copy `docker-compose.yml` and a filled-in `.env` onto the host (no git
-checkout). Persistent data is `./data` next to the compose file.
+Copy `docker-compose.yml` and a filled-in `.env` onto the host — those two files
+are the entire deployment, no git checkout and nothing else to copy. Persistent
+data is `./data` next to the compose file, and `stack-config` unpacks Kong's
+config, the Postgres init SQL and `dbschema.sql` out of the app image into
+`./data/stack` before anything that needs them starts.
 
 ```bash
 docker compose up -d
