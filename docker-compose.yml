@@ -32,9 +32,12 @@
 
 name: presio
 
+# `:main` is a floating tag, so `missing` would pin the host to whatever it
+# happened to pull first — `up -d` would keep recreating containers from a stale
+# image and never notice a new build. `always` only costs a manifest check.
 x-presio-image: &presio-image
   image: ${PRESIO_IMAGE:-ghcr.io/saniolab/presio-local:main}
-  pull_policy: missing
+  pull_policy: always
 
 services:
   # Unpack Kong YAML, Postgres init SQL and dbschema.sql out of the app image
