@@ -52,7 +52,9 @@ jobs:
       # placeholder enables the UI for e2e without talking to a real backend
       # — rendering makes no network requests with it. Set at job level
       # because Playwright's webServer command rebuilds the client itself.
+      # SUPABASE_URL must match so /config.js does not overlay an empty URL.
       VITE_SUPABASE_URL: https://e2e-placeholder.supabase.co
+      SUPABASE_URL: https://e2e-placeholder.supabase.co
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

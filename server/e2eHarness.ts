@@ -22,6 +22,13 @@ const port = Number(process.env.PORT || PORT);
 // client and server share an origin and this isn't needed.
 process.env.ALLOWED_ORIGIN = `http://localhost:${port}`;
 
+// Playwright bakes VITE_SUPABASE_URL so the login UI is compiled in. /config.js
+// is the runtime source of truth — copy the placeholder when the harness itself
+// has no SUPABASE_URL, otherwise an empty overlay hides the Log in button.
+if (!process.env.SUPABASE_URL?.trim() && process.env.VITE_SUPABASE_URL) {
+  process.env.SUPABASE_URL = process.env.VITE_SUPABASE_URL;
+}
+
 const fake = new FakeSupabase([
   {
     id: SESSION_ID,
