@@ -5,6 +5,7 @@ _transform: true
 ### Consumers / Users
 ###
 consumers:
+  - username: DASHBOARD
   - username: anon
     keyauth_credentials:
       - key: $SUPABASE_ANON_KEY
@@ -22,6 +23,16 @@ acls:
     group: anon
   - consumer: service_role
     group: admin
+
+###
+### Dashboard credentials (inner lock). Traefik Authentik is additional;
+### this must stay so Studio is never public if the outpost middleware is
+### missing or misnamed.
+###
+basicauth_credentials:
+  - consumer: DASHBOARD
+    username: '$DASHBOARD_USERNAME'
+    password: '$DASHBOARD_PASSWORD'
 
 ###
 ### API Routes
@@ -415,8 +426,7 @@ services:
       #      - ::1
       #    deny: []
 
-  ## Studio — catch all remaining routes. HTTP basic-auth is intentionally
-  ## omitted: Traefik's Authentik outpost authenticates the dashboard.
+  ## Protected Dashboard - catch all remaining routes
   - name: dashboard
     _comment: 'Studio: /* -> http://studio:3000/*'
     url: http://studio:3000/
@@ -427,3 +437,6 @@ services:
           - /
     plugins:
       - name: cors
+      - name: basic-auth
+        config:
+          hide_credentials: true

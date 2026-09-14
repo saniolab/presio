@@ -68,7 +68,7 @@ Copy the example to a `.env` **at the repo root** (this is where
 
 ```bash
 cp deploy/.env.example .env
-# edit .env — domains, the generated secrets, MinIO password,
+# edit .env — domains, the generated secrets, MinIO + dashboard passwords,
 # and OAuth client credentials (GitHub and/or Authentik).
 ```
 
@@ -120,12 +120,16 @@ After changing these values, recreate `auth`, `authentik-provider-init`, and
 
 ### Authentik outpost (Studio)
 
-Studio (`https://${SUPABASE_HOST}/`) is **not** behind Kong basic-auth. Traefik
-sends it through the host Authentik outpost; API paths (`/auth`, `/rest`,
-`/storage`, …) stay public so the app can talk to GoTrue.
+Studio is gated **twice**: Kong HTTP basic-auth (`DASHBOARD_USERNAME` /
+`DASHBOARD_PASSWORD`) is the inner lock and must stay. Traefik can also send
+Studio through the host Authentik outpost. API paths (`/auth`, `/rest`,
+`/storage`, …) stay off Authentik so the app can talk to GoTrue.
 
-1. In Authentik, add a **Proxy Provider** (forward auth) for
-   `https://supabase.presio.xyz` and bind it to the existing Traefik outpost.
+Do not remove Kong basic-auth. A missing or misnamed outpost middleware would
+leave Studio on the public internet.
+
+1. In Authentik, add a **Proxy Provider** (forward auth) for the Studio host
+   and bind it to the existing Traefik outpost.
 2. Set `AUTHENTIK_OUTPOST_MIDDLEWARE` to that outpost's Traefik middleware
    (default `authentik@docker`). If Traefik logs an unknown middleware, copy
    the name from the outpost container labels.
@@ -192,7 +196,7 @@ First boot runs the Supabase migrations, creates the MinIO bucket, then
 resolves, Traefik fetches certificates and serves:
 
 - `https://presio.xyz` → the app
-- `https://supabase.presio.xyz` → Supabase API (public) + Studio (Authentik outpost)
+- `https://supabase.presio.xyz` → Supabase API (public) + Studio (Kong basic-auth, optional Authentik)
 
 Watch certificate issuance / routing with `docker compose -p proxy logs -f traefik`.
 

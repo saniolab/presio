@@ -38,6 +38,7 @@ JWT_SECRET=$(rand 32)
 ANON_KEY=$(jwt anon "$JWT_SECRET")
 SERVICE_ROLE_KEY=$(jwt service_role "$JWT_SECRET")
 POSTGRES_PASSWORD=$(rand 24)
+DASHBOARD_PASSWORD=$(rand 16)
 SECRET_KEY_BASE=$(rand 32)
 VAULT_ENC_KEY=$(rand 16)
 PG_META_CRYPTO_KEY=$(rand 16)
@@ -66,6 +67,7 @@ override() {  # echo a replacement value for $1, or return 1 if no override
     ANON_KEY)                 echo "$ANON_KEY" ;;
     SERVICE_ROLE_KEY)         echo "$SERVICE_ROLE_KEY" ;;
     POSTGRES_PASSWORD)        echo "$POSTGRES_PASSWORD" ;;
+    DASHBOARD_PASSWORD)       echo "$DASHBOARD_PASSWORD" ;;
     SECRET_KEY_BASE)          echo "$SECRET_KEY_BASE" ;;
     VAULT_ENC_KEY)            echo "$VAULT_ENC_KEY" ;;
     PG_META_CRYPTO_KEY)       echo "$PG_META_CRYPTO_KEY" ;;
