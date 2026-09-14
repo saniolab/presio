@@ -68,7 +68,7 @@ Copy the example to a `.env` **at the repo root** (this is where
 
 ```bash
 cp deploy/.env.example .env
-# edit .env — domains, the generated secrets, MinIO + dashboard passwords,
+# edit .env — domains, the generated secrets, MinIO password,
 # and OAuth client credentials (GitHub and/or Authentik).
 ```
 
@@ -118,6 +118,35 @@ which Authentik does not serve (you get Authentik’s “Not Found” page).
 After changing these values, recreate `auth`, `authentik-provider-init`, and
 `presio` (`docker compose up -d`).
 
+### Authentik outpost (Studio)
+
+Studio (`https://${SUPABASE_HOST}/`) is **not** behind Kong basic-auth. Traefik
+sends it through the host Authentik outpost; API paths (`/auth`, `/rest`,
+`/storage`, …) stay public so the app can talk to GoTrue.
+
+1. In Authentik, add a **Proxy Provider** (forward auth) for
+   `https://supabase.presio.xyz` and bind it to the existing Traefik outpost.
+2. Set `AUTHENTIK_OUTPOST_MIDDLEWARE` to that outpost's Traefik middleware
+   (default `authentik@docker`). If Traefik logs an unknown middleware, copy
+   the name from the outpost container labels.
+3. Recreate `kong` (`docker compose up -d`).
+
+`/outpost.goauthentik.io` on the same host must be served by the outpost
+(Authentik's docker outpost usually adds that router itself). Do not point
+that path at Kong.
+
+### Instructor accounts
+
+Public self-signup stays off (`ENABLE_PUBLIC_SIGNUP=false`). Create people in
+Studio (Authentication → Users → Invite / Add user); they then sign in with
+email/password.
+
+Keep `ENABLE_EMAIL_SIGNUP=true` so those invited logins work. Do not set
+`DISABLE_SIGNUP=true` — that also blocks first-time Authentik login.
+
+Set `ENABLE_EMAIL_AUTOCONFIRM=false` and fill `SMTP_*` for invite and reset
+emails.
+
 Set `VITE_BRANDING=false` to hide marketing chrome (homepage pitch, “Enjoying
 Presio?” newsletter, install prompt, wordmark). The drop zone, join code, and
 recents stay. Recreate `presio` after changing it.
@@ -127,10 +156,6 @@ stops the live session: viewers are disconnected, the PDF and recents entry
 stay. Default is to delete. Recreate `presio` after changing it — compose also
 passes the same value as `PRESIO_END_DELETES` so the API cannot destroy the
 deck either.
-
-Email/password is enabled too (`ENABLE_EMAIL_SIGNUP=true`). Set
-`ENABLE_EMAIL_AUTOCONFIRM=false` and fill `SMTP_*` for real verification
-emails.
 
 ## 4. Start the shared proxy (once per host)
 
@@ -167,8 +192,7 @@ First boot runs the Supabase migrations, creates the MinIO bucket, then
 resolves, Traefik fetches certificates and serves:
 
 - `https://presio.xyz` → the app
-- `https://supabase.presio.xyz` → Supabase API + Studio (login
-  `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`)
+- `https://supabase.presio.xyz` → Supabase API (public) + Studio (Authentik outpost)
 
 Watch certificate issuance / routing with `docker compose -p proxy logs -f traefik`.
 

@@ -137,18 +137,28 @@ services:
         condition: service_completed_successfully
       studio:
         condition: service_healthy
-    # Ingress via the host Traefik. Routes the Supabase domain to Kong :8000.
+    # Ingress via the host Traefik. API paths stay on Kong JWT/key-auth. Studio
+    # is the catch-all and is gated by the host Authentik Traefik outpost.
     labels:
       traefik.enable: "true"
       traefik.docker.network: traefik-servicenet
+      traefik.http.services.supabase.loadbalancer.server.port: "8000"
+      traefik.http.middlewares.supabase.headers.framedeny: "true"
+      traefik.http.middlewares.supabase.headers.sslredirect: "true"
+      traefik.http.routers.supabase-api.rule: Host(`${SUPABASE_HOST}`) && (PathPrefix(`/auth`) || PathPrefix(`/rest`) || PathPrefix(`/graphql`) || PathPrefix(`/realtime`) || PathPrefix(`/storage`) || PathPrefix(`/functions`) || PathPrefix(`/.well-known`))
+      traefik.http.routers.supabase-api.priority: "100"
+      traefik.http.routers.supabase-api.tls: "true"
+      traefik.http.routers.supabase-api.tls.certResolver: tlschallenge
+      traefik.http.routers.supabase-api.entrypoints: web-secure
+      traefik.http.routers.supabase-api.middlewares: "supabase"
+      traefik.http.routers.supabase-api.service: supabase
       traefik.http.routers.supabase.rule: Host(`${SUPABASE_HOST}`)
+      traefik.http.routers.supabase.priority: "1"
       traefik.http.routers.supabase.tls: "true"
       traefik.http.routers.supabase.tls.certResolver: tlschallenge
       traefik.http.routers.supabase.entrypoints: web-secure
-      traefik.http.services.supabase.loadbalancer.server.port: "8000"
-      traefik.http.routers.supabase.middlewares: "supabase"
-      traefik.http.middlewares.supabase.headers.framedeny: "true"
-      traefik.http.middlewares.supabase.headers.sslredirect: "true"
+      traefik.http.routers.supabase.middlewares: "${AUTHENTIK_OUTPOST_MIDDLEWARE:-authentik@docker},supabase"
+      traefik.http.routers.supabase.service: supabase
     volumes:
       - ./data/stack/volumes/api/kong.yml:/home/kong/temp.yml:ro
       - ./data/stack/volumes/api/kong-entrypoint.sh:/home/kong/kong-entrypoint.sh:ro
@@ -175,8 +185,6 @@ services:
       SUPABASE_SECRET_KEY: ${SUPABASE_SECRET_KEY:-}
       ANON_KEY_ASYMMETRIC: ${ANON_KEY_ASYMMETRIC:-}
       SERVICE_ROLE_KEY_ASYMMETRIC: ${SERVICE_ROLE_KEY_ASYMMETRIC:-}
-      DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
-      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
     entrypoint: ["/bin/sh", "/home/kong/kong-entrypoint.sh"]
 
   auth:

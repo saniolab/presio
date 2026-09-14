@@ -104,10 +104,18 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=web"
+      - "traefik.http.services.staging-supabase.loadbalancer.server.port=8000"
+      - "traefik.http.routers.staging-supabase-api.rule=Host(`${SUPABASE_HOST}`) && (PathPrefix(`/auth`) || PathPrefix(`/rest`) || PathPrefix(`/graphql`) || PathPrefix(`/realtime`) || PathPrefix(`/storage`) || PathPrefix(`/functions`) || PathPrefix(`/.well-known`))"
+      - "traefik.http.routers.staging-supabase-api.priority=100"
+      - "traefik.http.routers.staging-supabase-api.entrypoints=websecure"
+      - "traefik.http.routers.staging-supabase-api.tls=true"
+      - "traefik.http.routers.staging-supabase-api.service=staging-supabase"
       - "traefik.http.routers.staging-supabase.rule=Host(`${SUPABASE_HOST}`)"
+      - "traefik.http.routers.staging-supabase.priority=1"
       - "traefik.http.routers.staging-supabase.entrypoints=websecure"
       - "traefik.http.routers.staging-supabase.tls=true"
-      - "traefik.http.services.staging-supabase.loadbalancer.server.port=8000"
+      - "traefik.http.routers.staging-supabase.middlewares=${AUTHENTIK_OUTPOST_MIDDLEWARE:-authentik@docker}"
+      - "traefik.http.routers.staging-supabase.service=staging-supabase"
     volumes:
       - ./deploy/volumes/api/kong.yml:/home/kong/temp.yml:ro,z
       - ./deploy/volumes/api/kong-entrypoint.sh:/home/kong/kong-entrypoint.sh:ro,z
@@ -122,8 +130,6 @@ services:
       KONG_PROXY_ACCESS_LOG: /dev/stdout combined
       SUPABASE_ANON_KEY: ${ANON_KEY}
       SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
-      DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
-      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD}
     entrypoint: ["/bin/sh", "/home/kong/kong-entrypoint.sh"]
 
   staging-auth:
