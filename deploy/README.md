@@ -145,8 +145,9 @@ Public self-signup stays off (`ENABLE_PUBLIC_SIGNUP=false`). Create people in
 Studio (Authentication → Users → Invite / Add user); they then sign in with
 email/password.
 
-Keep `ENABLE_EMAIL_SIGNUP=true` so those invited logins work. Do not set
-`DISABLE_SIGNUP=true` — that also blocks first-time Authentik login.
+`ENABLE_EMAIL_AUTH=true` (default) is email/password **login**. It is not
+registration. `ENABLE_EMAIL_SIGNUP` is ignored; do not set `DISABLE_SIGNUP=true`
+— that also blocks first-time Authentik login.
 
 Set `ENABLE_EMAIL_AUTOCONFIRM=false` and fill `SMTP_*` for invite and reset
 emails.

@@ -17,6 +17,7 @@ const keys = [
   "VITE_BRANDING",
   "GITHUB_ENABLED",
   "AUTHENTIK_ENABLED",
+  "ENABLE_EMAIL_AUTH",
   "ENABLE_EMAIL_SIGNUP",
   "ENABLE_PUBLIC_SIGNUP",
   "PRESIO_END_DELETES",
@@ -46,7 +47,8 @@ describe("publicRuntimeConfig", () => {
     process.env.VITE_BRANDING = "false";
     process.env.GITHUB_ENABLED = "false";
     process.env.AUTHENTIK_ENABLED = "true";
-    process.env.ENABLE_EMAIL_SIGNUP = "true";
+    process.env.ENABLE_EMAIL_AUTH = "true";
+    process.env.ENABLE_EMAIL_SIGNUP = "false";
     process.env.ENABLE_PUBLIC_SIGNUP = "false";
     process.env.PRESIO_END_DELETES = "false";
 
@@ -67,6 +69,25 @@ describe("publicRuntimeConfig", () => {
     expect(script).not.toContain("super-secret-jwt");
     expect(script).not.toContain("service-api-key");
     expect(script).not.toContain("handoff-secret");
+  });
+
+  it("keeps email login when ENABLE_EMAIL_SIGNUP is false (that flag is not login)", () => {
+    process.env.ENABLE_EMAIL_SIGNUP = "false";
+    delete process.env.ENABLE_EMAIL_AUTH;
+    process.env.ENABLE_PUBLIC_SIGNUP = "false";
+
+    const config = publicRuntimeConfig();
+    expect(config.emailAuth).toBe(true);
+    expect(config.publicSignup).toBe(false);
+  });
+
+  it("hides the password form only when ENABLE_EMAIL_AUTH is false", () => {
+    process.env.ENABLE_EMAIL_AUTH = "false";
+    process.env.ENABLE_PUBLIC_SIGNUP = "true";
+
+    const config = publicRuntimeConfig();
+    expect(config.emailAuth).toBe(false);
+    expect(config.publicSignup).toBe(false);
   });
 
   it("omits empty supabase URL from /config.js so Vite fallbacks still apply", () => {

@@ -14,7 +14,8 @@ export type PublicRuntimeConfig = {
 };
 
 export function publicRuntimeConfig(): PublicRuntimeConfig {
-  const emailAuth = envFlag(process.env.ENABLE_EMAIL_SIGNUP, true);
+  // Login form + GoTrue email provider. Independent of public registration.
+  const emailAuth = envFlag(process.env.ENABLE_EMAIL_AUTH, true);
   return {
     supabaseUrl: (process.env.SUPABASE_URL ?? "").trim(),
     supabaseAnonKey: (process.env.SUPABASE_ANON_KEY ?? process.env.ANON_KEY ?? "").trim(),
