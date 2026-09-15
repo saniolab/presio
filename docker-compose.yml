@@ -145,6 +145,12 @@ services:
       traefik.http.services.supabase.loadbalancer.server.port: "8000"
       traefik.http.middlewares.supabase.headers.framedeny: "true"
       traefik.http.middlewares.supabase.headers.sslredirect: "true"
+      # Same outpost endpoint as the middleware Authentik generates, but that
+      # one omits Authorization from authResponseHeaders, so a provider sending
+      # HTTP-Basic headers still leaves Kong prompting for the dashboard login.
+      traefik.http.middlewares.supabase-authentik.forwardauth.address: "${AUTHENTIK_OUTPOST_URL:-http://ak-outpost-local-docker-proxy:9000}/outpost.goauthentik.io/auth/traefik"
+      traefik.http.middlewares.supabase-authentik.forwardauth.trustForwardHeader: "true"
+      traefik.http.middlewares.supabase-authentik.forwardauth.authResponseHeaders: "authorization,Authorization,X-authentik-username,X-authentik-groups,X-authentik-entitlements,X-authentik-email,X-authentik-name,X-authentik-uid,X-authentik-jwt,X-authentik-meta-jwks,X-authentik-meta-outpost,X-authentik-meta-provider,X-authentik-meta-app,X-authentik-meta-version"
       traefik.http.routers.supabase-api.rule: Host(`${SUPABASE_HOST}`) && (PathPrefix(`/auth`) || PathPrefix(`/rest`) || PathPrefix(`/graphql`) || PathPrefix(`/realtime`) || PathPrefix(`/storage`) || PathPrefix(`/functions`) || PathPrefix(`/.well-known`))
       traefik.http.routers.supabase-api.priority: "100"
       traefik.http.routers.supabase-api.tls: "true"
@@ -152,12 +158,12 @@ services:
       traefik.http.routers.supabase-api.entrypoints: web-secure
       traefik.http.routers.supabase-api.middlewares: "supabase"
       traefik.http.routers.supabase-api.service: supabase
-      traefik.http.routers.supabase.rule: Host(`${SUPABASE_HOST}`)
+      traefik.http.routers.supabase.rule: Host(`${SUPABASE_HOST}`) && !PathPrefix(`/outpost.goauthentik.io`)
       traefik.http.routers.supabase.priority: "1"
       traefik.http.routers.supabase.tls: "true"
       traefik.http.routers.supabase.tls.certResolver: tlschallenge
       traefik.http.routers.supabase.entrypoints: web-secure
-      traefik.http.routers.supabase.middlewares: "${AUTHENTIK_OUTPOST_MIDDLEWARE:-authentik@docker},supabase"
+      traefik.http.routers.supabase.middlewares: "${AUTHENTIK_OUTPOST_MIDDLEWARE:-supabase-authentik@docker},supabase"
       traefik.http.routers.supabase.service: supabase
     volumes:
       - ./data/stack/volumes/api/kong.yml:/home/kong/temp.yml:ro

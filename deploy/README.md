@@ -130,14 +130,31 @@ leave Studio on the public internet.
 
 1. In Authentik, add a **Proxy Provider** (forward auth) for the Studio host
    and bind it to the existing Traefik outpost.
-2. Set `AUTHENTIK_OUTPOST_MIDDLEWARE` to that outpost's Traefik middleware
-   (default `authentik@docker`). If Traefik logs an unknown middleware, copy
-   the name from the outpost container labels.
+2. Set `AUTHENTIK_OUTPOST_URL` to that outpost's address (default
+   `http://ak-outpost-local-docker-proxy:9000`). Compose defines the
+   `supabase-authentik` middleware from it and gates Studio with it.
 3. Recreate `kong` (`docker compose up -d`).
 
 `/outpost.goauthentik.io` on the same host must be served by the outpost
 (Authentik's docker outpost usually adds that router itself). Do not point
-that path at Kong.
+that path at Kong — the Studio router excludes that prefix for this reason.
+
+To skip Kong's password prompt after Authentik sign-in, turn on **Send
+HTTP-Basic Authentication** on the provider. Both key fields take the *name* of
+a user or group attribute, not the value, so put the credentials on a group
+bound to the application:
+
+```yaml
+supabase_dashboard_username: <DASHBOARD_USERNAME>
+supabase_dashboard_password: <DASHBOARD_PASSWORD>
+```
+
+The middleware Authentik generates itself (`authentik@docker`) does not forward
+`authorization`, which is why compose ships its own. Only set
+`AUTHENTIK_OUTPOST_MIDDLEWARE` if you have a middleware that does.
+
+Turn **Intercept header authentication** off on that provider. If it stays on,
+authentik consumes `Authorization` and Kong never sees the dashboard password.
 
 ### Instructor accounts
 
