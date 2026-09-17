@@ -182,6 +182,39 @@ describe("externally managed presentations", () => {
     expect(res.body.sessionId).toBe("ABC123");
   });
 
+  it("accepts a handoff JWT from a wildcard issuer at any subdomain depth", async () => {
+    process.env.PRESIO_HANDOFF_JWT_SECRET = "jwt-secret";
+    process.env.PRESIO_HANDOFF_JWT_ISSUER = "https://*.example.test";
+
+    for (const iss of ["https://courses.example.test", "https://next.in.example.test/"]) {
+      const res = await request(appWith(new FakeSupabase([baseRow({})])))
+        .post("/api/auth/handoff")
+        .send({ token: handoffToken("ABC123", iss) });
+
+      expect(res.status, iss).toBe(200);
+    }
+  });
+
+  it("rejects issuers a wildcard must not cover", async () => {
+    process.env.PRESIO_HANDOFF_JWT_SECRET = "jwt-secret";
+    process.env.PRESIO_HANDOFF_JWT_ISSUER = "https://*.example.test";
+
+    const rejected = [
+      "https://example.test", // the bare apex has no label to match
+      "https://courses.example.test.attacker.test", // longer suffix
+      "http://courses.example.test", // wrong scheme
+      "https://courses.example.test:8443", // wrong port
+    ];
+
+    for (const iss of rejected) {
+      const res = await request(appWith(new FakeSupabase([baseRow({})])))
+        .post("/api/auth/handoff")
+        .send({ token: handoffToken("ABC123", iss) });
+
+      expect(res.status, iss).toBe(401);
+    }
+  });
+
   it("rejects a handoff JWT from an unrelated issuer", async () => {
     process.env.PRESIO_HANDOFF_JWT_SECRET = "jwt-secret";
     process.env.PRESIO_HANDOFF_JWT_ISSUER = "https://courses.example.test";

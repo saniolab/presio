@@ -41,9 +41,36 @@ function allowedHandoffIssuers(): string[] {
     .filter(Boolean);
 }
 
+/** `*` stands for one or more DNS labels, so `https://*.example.com` covers
+ *  `app.example.com` and `app.eu.example.com` but never `example.com` itself,
+ *  a longer suffix like `example.com.attacker.test`, or a different scheme. */
+function hostPatternToRegExp(hostPattern: string): RegExp {
+  const literals = hostPattern
+    .split("*")
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return new RegExp(`^${literals.join("[^.]+(?:\\.[^.]+)*")}$`);
+}
+
+function matchesIssuerPattern(issuer: string, pattern: string): boolean {
+  if (!pattern.includes("*")) return issuer === pattern;
+
+  try {
+    const issuerUrl = new URL(issuer);
+    const patternUrl = new URL(pattern);
+    return (
+      issuerUrl.protocol === patternUrl.protocol &&
+      issuerUrl.port === patternUrl.port &&
+      hostPatternToRegExp(patternUrl.hostname).test(issuerUrl.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 function isAllowedHandoffIssuer(issuer: string): boolean {
   const normalized = normalizeHandoffIssuer(issuer);
-  return normalized.length > 0 && allowedHandoffIssuers().includes(normalized);
+  if (!normalized) return false;
+  return allowedHandoffIssuers().some((pattern) => matchesIssuerPattern(normalized, pattern));
 }
 
 export function verifyHandoffJwt(token: string): HandoffClaims | null {
