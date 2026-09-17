@@ -73,12 +73,22 @@ function isAllowedHandoffIssuer(issuer: string): boolean {
   return allowedHandoffIssuers().some((pattern) => matchesIssuerPattern(normalized, pattern));
 }
 
+/** A rejected handoff looks identical to the user ("link expired or is invalid"),
+ *  so log why. `iss` is a public identifier; the token itself is never logged. */
+function rejectHandoff(reason: string): null {
+  console.warn(`[handoff] rejected token: ${reason}`);
+  return null;
+}
+
 export function verifyHandoffJwt(token: string): HandoffClaims | null {
   const secret = process.env.PRESIO_HANDOFF_JWT_SECRET || "";
-  if (!secret || allowedHandoffIssuers().length === 0) return null;
+  if (!secret) return rejectHandoff("PRESIO_HANDOFF_JWT_SECRET is not set");
+  if (allowedHandoffIssuers().length === 0) {
+    return rejectHandoff("PRESIO_HANDOFF_JWT_ISSUER is not set");
+  }
 
   const parts = token.split(".");
-  if (parts.length !== 3) return null;
+  if (parts.length !== 3) return rejectHandoff("not a three-part JWT");
   const [encodedHeader, encodedPayload, encodedSignature] = parts;
   const expected = createHmac("sha256", secret)
     .update(`${encodedHeader}.${encodedPayload}`)
@@ -87,27 +97,28 @@ export function verifyHandoffJwt(token: string): HandoffClaims | null {
   try {
     actual = Buffer.from(encodedSignature, "base64url");
   } catch {
-    return null;
+    return rejectHandoff("signature is not base64url");
   }
-  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
+  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+    return rejectHandoff("signature does not match PRESIO_HANDOFF_JWT_SECRET");
+  }
 
   try {
     const header = JSON.parse(Buffer.from(encodedHeader, "base64url").toString());
     const claims = JSON.parse(Buffer.from(encodedPayload, "base64url").toString()) as HandoffClaims;
-    if (
-      header.alg !== "HS256" ||
-      !isAllowedHandoffIssuer(String(claims.iss || "")) ||
-      claims.aud !== "presio" ||
-      !claims.sub ||
-      !claims.session ||
-      !Number.isFinite(claims.exp) ||
-      claims.exp <= Math.floor(Date.now() / 1000)
-    ) {
-      return null;
+    if (header.alg !== "HS256") return rejectHandoff(`unsupported alg ${header.alg}`);
+    if (!isAllowedHandoffIssuer(String(claims.iss || ""))) {
+      return rejectHandoff(
+        `iss ${JSON.stringify(claims.iss)} is not in PRESIO_HANDOFF_JWT_ISSUER (${allowedHandoffIssuers().join(", ")})`
+      );
     }
+    if (claims.aud !== "presio") return rejectHandoff(`aud ${JSON.stringify(claims.aud)} is not "presio"`);
+    if (!claims.sub || !claims.session) return rejectHandoff("sub or session claim is missing");
+    if (!Number.isFinite(claims.exp)) return rejectHandoff("exp claim is missing");
+    if (claims.exp <= Math.floor(Date.now() / 1000)) return rejectHandoff("token expired");
     return claims;
   } catch {
-    return null;
+    return rejectHandoff("header or payload is not valid JSON");
   }
 }
 
