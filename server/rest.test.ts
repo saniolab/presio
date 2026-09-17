@@ -29,11 +29,11 @@ const future = () => new Date(Date.now() + 86_400_000).toISOString();
 // A real PDF — the claim route parses the upload with pdf.js to count pages.
 const realPdf = fs.readFileSync(path.join(import.meta.dirname, "../example/example.pdf"));
 
-function handoffToken(session: string): string {
+function handoffToken(session: string, iss = "https://courses.example.test"): string {
   const encode = (value: object) => Buffer.from(JSON.stringify(value)).toString("base64url");
   const header = encode({ alg: "HS256", typ: "JWT" });
   const payload = encode({
-    iss: "https://courses.example.test",
+    iss,
     aud: "presio",
     sub: "instructor-1",
     session,
@@ -147,6 +147,50 @@ describe("externally managed presentations", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.sessionId).toBe("ABC123");
+  });
+
+  it("accepts a handoff JWT whose iss has a trailing slash", async () => {
+    process.env.PRESIO_HANDOFF_JWT_SECRET = "jwt-secret";
+    process.env.PRESIO_HANDOFF_JWT_ISSUER = "https://courses.example.test";
+    const app = appWith(new FakeSupabase([baseRow({})]));
+
+    const res = await request(app)
+      .post("/api/auth/handoff")
+      .send({ token: handoffToken("ABC123", "https://courses.example.test/") });
+
+    expect(res.status).toBe(200);
+    expect(res.body.sessionId).toBe("ABC123");
+  });
+
+  it("accepts a PHP json_encode handoff JWT with escaped slashes", async () => {
+    process.env.PRESIO_HANDOFF_JWT_SECRET = "jwt-secret";
+    process.env.PRESIO_HANDOFF_JWT_ISSUER = "https://courses.example.test";
+    const encode = (json: string) => Buffer.from(json).toString("base64url");
+    const header = encode('{"alg":"HS256","typ":"JWT"}');
+    const payload = encode(
+      `{"iss":"https:\\/\\/courses.example.test","aud":"presio","sub":"1","session":"ABC123","exp":${Math.floor(Date.now() / 1000) + 300}}`,
+    );
+    const signature = createHmac("sha256", "jwt-secret")
+      .update(`${header}.${payload}`)
+      .digest("base64url");
+
+    const res = await request(appWith(new FakeSupabase([baseRow({})])))
+      .post("/api/auth/handoff")
+      .send({ token: `${header}.${payload}.${signature}` });
+
+    expect(res.status).toBe(200);
+    expect(res.body.sessionId).toBe("ABC123");
+  });
+
+  it("rejects a handoff JWT from an unrelated issuer", async () => {
+    process.env.PRESIO_HANDOFF_JWT_SECRET = "jwt-secret";
+    process.env.PRESIO_HANDOFF_JWT_ISSUER = "https://courses.example.test";
+
+    const res = await request(appWith(new FakeSupabase([baseRow({})])))
+      .post("/api/auth/handoff")
+      .send({ token: handoffToken("ABC123", "https://evil.example") });
+
+    expect(res.status).toBe(401);
   });
 
   it("rejects an invalid handoff JWT", async () => {

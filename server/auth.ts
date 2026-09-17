@@ -30,33 +30,46 @@ interface HandoffClaims {
   exp: number;
 }
 
+function normalizeHandoffIssuer(issuer: string): string {
+  return issuer.trim().replace(/\/+$/, "");
+}
+
 function allowedHandoffIssuers(): string[] {
   return (process.env.PRESIO_HANDOFF_JWT_ISSUER || "")
     .split(",")
-    .map((issuer) => issuer.trim().replace(/\/+$/, ""))
+    .map(normalizeHandoffIssuer)
     .filter(Boolean);
+}
+
+function isAllowedHandoffIssuer(issuer: string): boolean {
+  const normalized = normalizeHandoffIssuer(issuer);
+  return normalized.length > 0 && allowedHandoffIssuers().includes(normalized);
 }
 
 export function verifyHandoffJwt(token: string): HandoffClaims | null {
   const secret = process.env.PRESIO_HANDOFF_JWT_SECRET || "";
-  const issuers = allowedHandoffIssuers();
-  if (!secret || issuers.length === 0) return null;
+  if (!secret || allowedHandoffIssuers().length === 0) return null;
 
   const parts = token.split(".");
   if (parts.length !== 3) return null;
   const [encodedHeader, encodedPayload, encodedSignature] = parts;
   const expected = createHmac("sha256", secret)
     .update(`${encodedHeader}.${encodedPayload}`)
-    .digest("base64url");
-  if (!safeEqual(encodedSignature, expected)) return null;
+    .digest();
+  let actual: Buffer;
+  try {
+    actual = Buffer.from(encodedSignature, "base64url");
+  } catch {
+    return null;
+  }
+  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
 
   try {
     const header = JSON.parse(Buffer.from(encodedHeader, "base64url").toString());
     const claims = JSON.parse(Buffer.from(encodedPayload, "base64url").toString()) as HandoffClaims;
-    const issuer = String(claims.iss || "").replace(/\/+$/, "");
     if (
       header.alg !== "HS256" ||
-      !issuers.includes(issuer) ||
+      !isAllowedHandoffIssuer(String(claims.iss || "")) ||
       claims.aud !== "presio" ||
       !claims.sub ||
       !claims.session ||
