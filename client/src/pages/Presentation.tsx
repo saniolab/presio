@@ -2,7 +2,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useParams, useSearchParams, useNavigate, useLocation, Link } from "react-router-dom";
 import type { PDFDocumentProxy } from "pdfjs-dist";
 import { getDocument } from "pdfjs-dist";
-import { loadPdf, loadPdfData, freshPdfUrl, loadLatestPdf, renderPage, clearCache } from "@/lib/pdf";
+import { loadPdf, loadPdfData, loadLatestPdf, renderPage, clearCache } from "@/lib/pdf";
 import { loadDeckInfo, type Deck, type DeckInfo } from "@/lib/deck";
 import { setSlideNotes } from "@/lib/notesAttach";
 import { defaultAudioState, isMutedForRole, type MediaState, type MediaTimeSync, type AudioState } from "@/lib/media";
@@ -370,20 +370,25 @@ export default function Presentation() {
           setTotalSlides(session.total_slides);
           setCurrentSlide(session.current_slide);
           // Canonical server URL so a later replace / keep-offline refresh
-          // still hits storage, even if we render a cached IndexedDB copy.
+          // still hits storage. Hosted decks must not reuse a previous IndexedDB
+          // copy: a replace rewrites the same object path, so the cached blob
+          // and a CDN hit would show the old PDF.
           setPdfUrl(session.pdfUrl);
-          if (await openFromIdb()) {
-            // Keep the server URL for replace / keep-offline fetches; the
-            // document itself is already loaded from the cached copy.
-            setPdfUrl(session.pdfUrl);
+          try {
+            const doc = await loadLatestPdf(session.pdfUrl, {
+              external: !!session.external,
+              version: replacedAt ?? Date.now(),
+            });
+            if (cancelled) return;
+            setPdf(doc);
             return;
+          } catch {
+            if (await openFromIdb()) {
+              setPdfUrl(session.pdfUrl);
+              return;
+            }
+            throw new Error("Failed to load presentation");
           }
-          const doc = await loadPdf(
-            replacedAt ? freshPdfUrl(session.pdfUrl, replacedAt) : session.pdfUrl
-          );
-          if (cancelled) return;
-          setPdf(doc);
-          return;
         }
 
         // No live session: a previously cached copy still presents locally.
