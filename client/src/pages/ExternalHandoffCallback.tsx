@@ -24,6 +24,9 @@ export default function ExternalHandoffCallback() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ token }),
         });
+        if (res.status === 404) {
+          throw new Error("This presentation is no longer available.");
+        }
         if (!res.ok) {
           throw new Error("The presentation handoff link expired or is invalid.");
         }
