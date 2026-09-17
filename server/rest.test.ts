@@ -136,6 +136,19 @@ describe("externally managed presentations", () => {
     });
   });
 
+  it("accepts a handoff JWT from any configured issuer", async () => {
+    process.env.PRESIO_HANDOFF_JWT_SECRET = "jwt-secret";
+    process.env.PRESIO_HANDOFF_JWT_ISSUER = "https://team.example.test, https://courses.example.test/";
+    const app = appWith(new FakeSupabase([baseRow({})]));
+
+    const res = await request(app)
+      .post("/api/auth/handoff")
+      .send({ token: handoffToken("ABC123") });
+
+    expect(res.status).toBe(200);
+    expect(res.body.sessionId).toBe("ABC123");
+  });
+
   it("rejects an invalid handoff JWT", async () => {
     process.env.PRESIO_HANDOFF_JWT_SECRET = "jwt-secret";
     process.env.PRESIO_HANDOFF_JWT_ISSUER = "https://courses.example.test";

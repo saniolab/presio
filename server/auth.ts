@@ -30,10 +30,17 @@ interface HandoffClaims {
   exp: number;
 }
 
+function allowedHandoffIssuers(): string[] {
+  return (process.env.PRESIO_HANDOFF_JWT_ISSUER || "")
+    .split(",")
+    .map((issuer) => issuer.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+}
+
 export function verifyHandoffJwt(token: string): HandoffClaims | null {
   const secret = process.env.PRESIO_HANDOFF_JWT_SECRET || "";
-  const issuer = process.env.PRESIO_HANDOFF_JWT_ISSUER || "";
-  if (!secret || !issuer) return null;
+  const issuers = allowedHandoffIssuers();
+  if (!secret || issuers.length === 0) return null;
 
   const parts = token.split(".");
   if (parts.length !== 3) return null;
@@ -46,9 +53,10 @@ export function verifyHandoffJwt(token: string): HandoffClaims | null {
   try {
     const header = JSON.parse(Buffer.from(encodedHeader, "base64url").toString());
     const claims = JSON.parse(Buffer.from(encodedPayload, "base64url").toString()) as HandoffClaims;
+    const issuer = String(claims.iss || "").replace(/\/+$/, "");
     if (
       header.alg !== "HS256" ||
-      claims.iss !== issuer ||
+      !issuers.includes(issuer) ||
       claims.aud !== "presio" ||
       !claims.sub ||
       !claims.session ||
