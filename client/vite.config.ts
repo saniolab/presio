@@ -1,10 +1,59 @@
 /// <reference types="vitest/config" />
+import { readFile, writeFile } from "node:fs/promises"
 import path from "path"
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// Files outside the hashed bundle that the app still needs to open offline.
+const SHELL_FILES = [
+  "/",
+  "/config.js",
+  "/manifest.webmanifest",
+  "/favicon.png",
+  "/icon-192.png",
+  "/apple-touch-icon.png",
+]
+
+/**
+ * Bakes the built file list into public/sw.js, which is otherwise copied
+ * verbatim and has no way to know the hashed asset names it must precache.
+ */
+function precacheServiceWorker(): Plugin {
+  let precache: string[] = []
+  let buildId = ""
+
+  return {
+    name: "presio-precache-sw",
+    apply: "build",
+    generateBundle(_options, bundle) {
+      const files = Object.keys(bundle)
+        .filter((file) => file.endsWith(".js") || file.endsWith(".css"))
+        .map((file) => `/${file}`)
+        .sort()
+      const entry = Object.values(bundle).find((output) => output.type === "chunk" && output.isEntry)
+      // The entry's content hash changes with every build, so it doubles as the
+      // cache version: a deploy lands in a fresh cache and drops the old one.
+      buildId = entry ? path.basename(entry.fileName) : String(Date.now())
+      precache = [...SHELL_FILES, ...files]
+    },
+    async closeBundle() {
+      const swPath = path.resolve(__dirname, "dist/sw.js")
+      const source = await readFile(swPath, "utf8")
+      const rewritten = source
+        .replace('"__PRESIO_BUILD_ID__"', JSON.stringify(buildId))
+        .replace('["__PRESIO_PRECACHE__"]', JSON.stringify(precache))
+      // A silently unreplaced placeholder ships a service worker that caches
+      // nothing, which only shows up as a broken page offline.
+      if (rewritten === source) {
+        throw new Error("sw.js is missing its __PRESIO_BUILD_ID__/__PRESIO_PRECACHE__ placeholders")
+      }
+      await writeFile(swPath, rewritten)
+    },
+  }
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), precacheServiceWorker()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
