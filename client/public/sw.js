@@ -38,9 +38,16 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+// The app answers with `Vary: Origin` (its CORS middleware), and Cache API
+// matching honours Vary: a module script or `crossorigin` stylesheet is fetched
+// in CORS mode and carries an Origin header, so it would miss every precached
+// entry and fail with no network to fall back on. Keying purely on the URL is
+// what we want here — this cache only ever holds our own same-origin shell.
+const MATCH = { ignoreVary: true };
+
 async function cacheFirst(request) {
   const cache = await caches.open(CACHE);
-  const hit = await cache.match(request);
+  const hit = await cache.match(request, MATCH);
   if (hit) return hit;
   const res = await fetch(request);
   if (res.ok) cache.put(request, res.clone());
@@ -54,7 +61,7 @@ async function networkFirst(request, cacheKey = request) {
     if (res.ok) cache.put(cacheKey, res.clone());
     return res;
   } catch {
-    return (await cache.match(cacheKey)) || Response.error();
+    return (await cache.match(cacheKey, MATCH)) || Response.error();
   }
 }
 
